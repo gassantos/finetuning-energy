@@ -4,6 +4,7 @@ WANDB_ENTITY = "gassantos-icuff"
 WANDB_PROJECT = "llama32-summarization-poc"
 WANDB_RUN_NAME = "llama2-3b-lora-robust-monitoring"
 MODEL_NAME = "LLaMA 3.2 3B"
+MODEL_ID = "meta-llama/Llama-3.2-3B"
 BATCH_SIZE = 2
 LEARNING_RATE = 2e-4
 EPOCHS = 3
@@ -12,9 +13,20 @@ LORA_ALPHA = 16
 DATASET = "billsum"
 TASK = "summarization"
 QUANTIZATION = "4-bit"
+OUTPUT_DIR = "./llama32-3b-lora-summarization"
+RESULT_DIR = "./results"
+MONITORING_INTERVAL = 1.0
+DATASET_NUM_SAMPLES = 10
+
+# Configurações de monitoramento
+MONITORING_NVIDIA_SMI_TIMEOUT = 10
+MONITORING_PYNVML_TIMEOUT = 5
+MONITORING_NVITOP_TIMEOUT = 5
 
 [development]
 WANDB_MODE = "offline"
+DATASET_NUM_SAMPLES = 10
 
 [production]
 WANDB_MODE = "online"
+DATASET_NUM_SAMPLES = 100
