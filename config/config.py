@@ -2,16 +2,11 @@
 from dynaconf import Dynaconf, Validator
 
 settings = Dynaconf(
-    envvar_prefix="DYNACONF",
     settings_files=['settings.toml', '.secrets.toml'],
     environments=True,
-    env_switcher=True,
+    env_switcher="APP_ENV",
     validators=[
-        Validator("DEBUG", default=False, is_type_of=bool),
-        Validator("ENVIRONMENT", default="development", is_type_of=str),
+        Validator("DEBUG", is_type_of=bool),
     ],
-    load_dotenv=True
+    load_dotenv=True,
 )
-
-# `envvar_prefix` = export envvars with `export DYNACONF_FOO=bar`.
-# `settings_files` = Load these files in the order.

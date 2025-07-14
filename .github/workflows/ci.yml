@@ -23,10 +23,14 @@ jobs:
     - name: 🧪 Instalar o UV (gerenciador de dependências)
       uses: astral-sh/setup-uv@v6
 
+    - name: ⬇️ Get Python version from .python-version file
+      id: python_version_file
+      run: echo "PYTHON_VERSION=$(cat .python-version)" >> $GITHUB_OUTPUT
+
     - name: ⚙️ Setup Python com cache de dependências
       uses: actions/setup-python@v5
       with:
-        python-version: '.python-version'
+        python-version: ${{ steps.python_version_file.outputs.PYTHON_VERSION }}
 
     - name: 📦 Instalar dependências com UV
       run: uv sync --locked --all-extras --dev

@@ -7,7 +7,6 @@ requires-python = ">=3.12"
 dependencies = [
     "accelerate>=1.8.1",
     "bitsandbytes>=0.46.1",
-    "codecarbon>=3.0.3",
     "datasets>=4.0.0",
     "dynaconf>=3.2.11",
     "gpustat>=1.1.1",

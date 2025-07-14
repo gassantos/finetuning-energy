@@ -1,5 +1,4 @@
 [global]
-WANDB_MODE = "offline"
 WANDB_ENTITY = "gassantos-icuff"
 WANDB_PROJECT = "llama32-summarization-poc"
 WANDB_RUN_NAME = "llama2-3b-lora-robust-monitoring"
@@ -16,7 +15,6 @@ QUANTIZATION = "4-bit"
 OUTPUT_DIR = "./llama32-3b-lora-summarization"
 RESULT_DIR = "./results"
 MONITORING_INTERVAL = 1.0
-DATASET_NUM_SAMPLES = 10
 
 # Configurações de monitoramento
 MONITORING_NVIDIA_SMI_TIMEOUT = 10
@@ -24,9 +22,11 @@ MONITORING_PYNVML_TIMEOUT = 5
 MONITORING_NVITOP_TIMEOUT = 5
 
 [development]
+DEBUG = true
 WANDB_MODE = "offline"
 DATASET_NUM_SAMPLES = 10
 
 [production]
+DEBUG = false
 WANDB_MODE = "online"
 DATASET_NUM_SAMPLES = 100
