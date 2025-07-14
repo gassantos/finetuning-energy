@@ -18,7 +18,7 @@ import logging
 from datetime import datetime
 from pathlib import Path
 
-from monitor import RobustGPUMonitor
+from src.monitor import RobustGPUMonitor
 from config.config import settings
 
 # Configurar logging

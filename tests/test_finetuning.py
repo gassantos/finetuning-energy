@@ -20,14 +20,14 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 def test_import():
     """Testa a importação do módulo"""
-    import finetuning
-    from finetuning import LlamaFineTuner
+    import src.finetuning as finetuning
+    from src.finetuning import LlamaFineTuner
     assert LlamaFineTuner is not None, "LlamaFineTuner não foi importado corretamente"
     print("✅ Importação do LlamaFineTuner bem-sucedida")
 
 def test_initialization():
     """Testa a inicialização da classe"""
-    from finetuning import LlamaFineTuner
+    from src.finetuning import LlamaFineTuner
     fine_tuner = LlamaFineTuner("test_key", "test_token")
     assert fine_tuner is not None, "LlamaFineTuner não foi inicializado"
     assert hasattr(fine_tuner, 'wandb_key'), "LlamaFineTuner não tem wandb_key"
@@ -38,7 +38,7 @@ def test_initialization():
 
 def test_config_methods():
     """Testa os métodos de configuração"""
-    from finetuning import LlamaFineTuner
+    from src.finetuning import LlamaFineTuner
     fine_tuner = LlamaFineTuner("test_key", "test_token")
     
     # Teste quantization config

@@ -1,4 +1,4 @@
-from finetuning import LlamaFineTuner
+from src.finetuning import LlamaFineTuner
 from config.config import settings
 
 

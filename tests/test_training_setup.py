@@ -10,7 +10,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 def test_training_setup():
     """Testa se o setup de treinamento funciona sem EarlyStoppingCallback"""
-    from finetuning import LlamaFineTuner
+    from src.finetuning import LlamaFineTuner
     
     print("✅ Importação bem-sucedida")
     
