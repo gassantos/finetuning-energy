@@ -36,4 +36,4 @@ jobs:
       run: uv sync --locked --all-extras --dev
 
     - name: 🧪 Executar testes com pytest
-      run: pytest tests/ --maxfail=1 --disable-warnings --tb=short
+      run: uv run pytest tests/ --maxfail=1 --disable-warnings --tb=short
