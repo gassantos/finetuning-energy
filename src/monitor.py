@@ -1,9 +1,10 @@
-import time
-import threading
-from typing import Dict, List
 import subprocess
-import pynvml
+import threading
+import time
+from typing import Dict, List
+
 import nvitop
+import pynvml
 
 from config.config import settings
 
@@ -19,6 +20,7 @@ def safe_cast(value, cast_func, default):
 # Importações robustas para monitoramento GPU
 try:
     import nvitop
+
     NVITOP_AVAILABLE = True
 except ImportError:
     NVITOP_AVAILABLE = False
@@ -26,6 +28,7 @@ except ImportError:
 
 try:
     import pynvml
+
     PYNVML_AVAILABLE = True
 except ImportError:
     PYNVML_AVAILABLE = False
@@ -33,7 +36,9 @@ except ImportError:
 
 try:
     import subprocess
+
     import psutil
+
     SYSTEM_MONITORING_AVAILABLE = True
 except ImportError:
     SYSTEM_MONITORING_AVAILABLE = False
@@ -56,14 +61,18 @@ class RobustGPUMonitor:
             "nvitop": NVITOP_AVAILABLE,
             "pynvml": PYNVML_AVAILABLE,
             "nvidia_smi": False,
-            "system_tools": SYSTEM_MONITORING_AVAILABLE
+            "system_tools": SYSTEM_MONITORING_AVAILABLE,
         }
 
         # Testar nvidia-smi
         try:
             timeout = safe_cast(settings.MONITORING_NVIDIA_SMI_TIMEOUT, int, 10)
-            result = subprocess.run(["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
-                                  capture_output=True, text=True, timeout=timeout)
+            result = subprocess.run(
+                ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+            )
             capabilities["nvidia_smi"] = result.returncode == 0
         except (subprocess.TimeoutExpired, FileNotFoundError):
             pass
@@ -129,7 +138,7 @@ class RobustGPUMonitor:
             "utilization": False,
             "memory_info": False,
             "processes_v2": False,
-            "processes_v1": False
+            "processes_v1": False,
         }
 
         try:
@@ -186,11 +195,16 @@ class RobustGPUMonitor:
         """Inicializa monitoramento usando nvidia-smi"""
         try:
             timeout = safe_cast(settings.MONITORING_NVIDIA_SMI_TIMEOUT, int, 10)
-            result = subprocess.run([
-                "nvidia-smi",
-                "--query-gpu=index,name,power.draw,temperature.gpu,utilization.gpu,memory.used,memory.total",
-                "--format=csv,noheader,nounits"
-            ], capture_output=True, text=True, timeout=timeout)
+            result = subprocess.run(
+                [
+                    "nvidia-smi",
+                    "--query-gpu=index,name,power.draw,temperature.gpu,utilization.gpu,memory.used,memory.total",
+                    "--format=csv,noheader,nounits",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+            )
 
             if result.returncode == 0:
                 self.monitoring_method = "nvidia_smi"
@@ -233,12 +247,26 @@ class RobustGPUMonitor:
                     metrics = {
                         "gpu_id": i,
                         "name": device.name(),
-                        "power_draw_w": self._safe_get_attribute(device, 'power_draw', 0),
-                        "temperature_c": self._safe_get_attribute(device, 'temperature', 0),
-                        "utilization_gpu_percent": self._safe_get_attribute(device, 'gpu_utilization', 0),
-                        "utilization_memory_percent": self._safe_get_attribute(device, 'memory_utilization', 0),
-                        "memory_used_mb": self._safe_get_attribute(device, 'memory_used', 0) // (1024 * 1024),
-                        "memory_total_mb": self._safe_get_attribute(device, 'memory_total', 0) // (1024 * 1024),
+                        "power_draw_w": self._safe_get_attribute(
+                            device, "power_draw", 0
+                        ),
+                        "temperature_c": self._safe_get_attribute(
+                            device, "temperature", 0
+                        ),
+                        "utilization_gpu_percent": self._safe_get_attribute(
+                            device, "gpu_utilization", 0
+                        ),
+                        "utilization_memory_percent": self._safe_get_attribute(
+                            device, "memory_utilization", 0
+                        ),
+                        "memory_used_mb": self._safe_get_attribute(
+                            device, "memory_used", 0
+                        )
+                        // (1024 * 1024),
+                        "memory_total_mb": self._safe_get_attribute(
+                            device, "memory_total", 0
+                        )
+                        // (1024 * 1024),
                     }
 
                     gpu_metrics.append(metrics)
@@ -289,14 +317,18 @@ class RobustGPUMonitor:
                 # Potência (se disponível)
                 if self.pynvml_functions.get("power_draw", False):
                     try:
-                        metrics["power_draw_w"] = pynvml.nvmlDeviceGetPowerUsage(handle) / 1000.0
+                        metrics["power_draw_w"] = (
+                            pynvml.nvmlDeviceGetPowerUsage(handle) / 1000.0
+                        )
                     except:
                         pass
 
                 # Temperatura
                 if self.pynvml_functions.get("temperature", False):
                     try:
-                        metrics["temperature_c"] = pynvml.nvmlDeviceGetTemperature(handle, pynvml.NVML_TEMPERATURE_GPU)
+                        metrics["temperature_c"] = pynvml.nvmlDeviceGetTemperature(
+                            handle, pynvml.NVML_TEMPERATURE_GPU
+                        )
                     except:
                         pass
 
@@ -314,7 +346,9 @@ class RobustGPUMonitor:
                     try:
                         mem_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
                         metrics["memory_used_mb"] = int(mem_info.used) // (1024 * 1024)
-                        metrics["memory_total_mb"] = int(mem_info.total) // (1024 * 1024)
+                        metrics["memory_total_mb"] = int(mem_info.total) // (
+                            1024 * 1024
+                        )
                     except:
                         pass
 
@@ -331,31 +365,58 @@ class RobustGPUMonitor:
 
         try:
             timeout = safe_cast(settings.MONITORING_NVIDIA_SMI_TIMEOUT, int, 10)
-            result = subprocess.run([
-                "nvidia-smi",
-                "--query-gpu=index,name,power.draw,temperature.gpu,utilization.gpu,memory.used,memory.total",
-                "--format=csv,noheader,nounits"
-            ], capture_output=True, text=True, timeout=timeout)
+            result = subprocess.run(
+                [
+                    "nvidia-smi",
+                    "--query-gpu=index,name,power.draw,temperature.gpu,utilization.gpu,memory.used,memory.total",
+                    "--format=csv,noheader,nounits",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+            )
 
             if result.returncode == 0:
-                for line in result.stdout.strip().split('\n'):
+                for line in result.stdout.strip().split("\n"):
                     if line.strip():
-                        parts = [p.strip() for p in line.split(',')]
+                        parts = [p.strip() for p in line.split(",")]
                         if len(parts) >= 7:
                             try:
                                 metrics = {
                                     "gpu_id": int(parts[0]),
                                     "name": parts[1],
-                                    "power_draw_w": float(parts[2]) if parts[2] != '[Not Supported]' else 0,
-                                    "temperature_c": float(parts[3]) if parts[3] != '[Not Supported]' else 0,
-                                    "utilization_gpu_percent": float(parts[4]) if parts[4] != '[Not Supported]' else 0,
-                                    "memory_used_mb": float(parts[5]) if parts[5] != '[Not Supported]' else 0,
-                                    "memory_total_mb": float(parts[6]) if parts[6] != '[Not Supported]' else 0,
-                                    "utilization_memory_percent": 0  # Não disponível via nvidia-smi básico
+                                    "power_draw_w": (
+                                        float(parts[2])
+                                        if parts[2] != "[Not Supported]"
+                                        else 0
+                                    ),
+                                    "temperature_c": (
+                                        float(parts[3])
+                                        if parts[3] != "[Not Supported]"
+                                        else 0
+                                    ),
+                                    "utilization_gpu_percent": (
+                                        float(parts[4])
+                                        if parts[4] != "[Not Supported]"
+                                        else 0
+                                    ),
+                                    "memory_used_mb": (
+                                        float(parts[5])
+                                        if parts[5] != "[Not Supported]"
+                                        else 0
+                                    ),
+                                    "memory_total_mb": (
+                                        float(parts[6])
+                                        if parts[6] != "[Not Supported]"
+                                        else 0
+                                    ),
+                                    "utilization_memory_percent": 0,  # Não disponível via nvidia-smi básico
                                 }
                                 gpu_metrics.append(metrics)
                             except ValueError as e:
-                                print(f"⚠️ Erro ao parsear linha nvidia-smi: {line} - {e}")
+                                print(
+                                    f"⚠️ Erro ao parsear linha nvidia-smi: {line} - {e}"
+                                )
 
         except Exception as e:
             print(f"❌ Erro na coleta nvidia-smi: {e}")
@@ -378,11 +439,13 @@ class RobustGPUMonitor:
                 gpu_metrics = []
 
             if gpu_metrics:
-                self.energy_data.append({
-                    "timestamp": timestamp,
-                    "method": self.monitoring_method,
-                    "gpus": gpu_metrics
-                })
+                self.energy_data.append(
+                    {
+                        "timestamp": timestamp,
+                        "method": self.monitoring_method,
+                        "gpus": gpu_metrics,
+                    }
+                )
 
             time.sleep(self.sampling_interval)
 
@@ -419,7 +482,7 @@ class RobustGPUMonitor:
             "monitoring_duration_s": 0,
             "total_samples": len(self.energy_data),
             "sampling_interval_s": self.sampling_interval,
-            "gpus": {}
+            "gpus": {},
         }
 
         if len(self.energy_data) > 1:
@@ -440,17 +503,25 @@ class RobustGPUMonitor:
                 "temperature_samples_c": [],
                 "utilization_gpu_samples": [],
                 "memory_used_samples_mb": [],
-                "name": "Unknown"
+                "name": "Unknown",
             }
 
             # Coletar amostras
             for sample in self.energy_data:
                 for gpu_data in sample["gpus"]:
                     if gpu_data.get("gpu_id") == gpu_id and "error" not in gpu_data:
-                        gpu_samples["power_samples_w"].append(gpu_data.get("power_draw_w", 0))
-                        gpu_samples["temperature_samples_c"].append(gpu_data.get("temperature_c", 0))
-                        gpu_samples["utilization_gpu_samples"].append(gpu_data.get("utilization_gpu_percent", 0))
-                        gpu_samples["memory_used_samples_mb"].append(gpu_data.get("memory_used_mb", 0))
+                        gpu_samples["power_samples_w"].append(
+                            gpu_data.get("power_draw_w", 0)
+                        )
+                        gpu_samples["temperature_samples_c"].append(
+                            gpu_data.get("temperature_c", 0)
+                        )
+                        gpu_samples["utilization_gpu_samples"].append(
+                            gpu_data.get("utilization_gpu_percent", 0)
+                        )
+                        gpu_samples["memory_used_samples_mb"].append(
+                            gpu_data.get("memory_used_mb", 0)
+                        )
                         gpu_samples["name"] = gpu_data.get("name", "Unknown")
 
             # Calcular estatísticas
@@ -462,13 +533,21 @@ class RobustGPUMonitor:
                     "power_avg_w": sum(power_samples) / len(power_samples),
                     "power_max_w": max(power_samples),
                     "power_min_w": min(power_samples),
-                    "energy_consumed_wh": (sum(power_samples) / len(power_samples)) * duration_hours,
-                    "energy_consumed_kwh": ((sum(power_samples) / len(power_samples)) * duration_hours) / 1000
+                    "energy_consumed_wh": (sum(power_samples) / len(power_samples))
+                    * duration_hours,
+                    "energy_consumed_kwh": (
+                        (sum(power_samples) / len(power_samples)) * duration_hours
+                    )
+                    / 1000,
                 }
 
                 if gpu_samples["temperature_samples_c"]:
-                    gpu_samples["statistics"]["temperature_avg_c"] = sum(gpu_samples["temperature_samples_c"]) / len(gpu_samples["temperature_samples_c"])
-                    gpu_samples["statistics"]["temperature_max_c"] = max(gpu_samples["temperature_samples_c"])
+                    gpu_samples["statistics"]["temperature_avg_c"] = sum(
+                        gpu_samples["temperature_samples_c"]
+                    ) / len(gpu_samples["temperature_samples_c"])
+                    gpu_samples["statistics"]["temperature_max_c"] = max(
+                        gpu_samples["temperature_samples_c"]
+                    )
 
             processed_data["gpus"][f"gpu_{gpu_id}"] = gpu_samples
 
