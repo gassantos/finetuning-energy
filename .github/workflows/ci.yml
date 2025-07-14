@@ -1,0 +1,35 @@
+# .github/workflows/ci.yml
+
+name: CI - Fine-Tuning Energy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      PYTHONUNBUFFERED: 1
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
+      WANDB_API_KEY: ${{ secrets.WANDB_API_KEY }}
+
+    steps:
+    - name: ⬇️ Checkout do código
+      uses: actions/checkout@v4
+
+    - name: 🧪 Instalar o UV (gerenciador de dependências)
+      uses: astral-sh/setup-uv@v6
+
+    - name: ⚙️ Setup Python com cache de dependências
+      uses: actions/setup-python@v5
+      with:
+        python-version: '.python-version'
+
+    - name: 📦 Instalar dependências com UV
+      run: uv sync --locked --all-extras --dev
+
+    - name: 🧪 Executar testes com pytest
+      run: pytest tests/ --maxfail=1 --disable-warnings --tb=short
