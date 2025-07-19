@@ -312,6 +312,7 @@ class TestTrainingArguments:
 class TestDatasetHandling:
     """Testa manipulação de datasets."""
 
+    @pytest.mark.network
     def test_load_and_prepare_dataset(
         self,
         mock_model,
@@ -360,6 +361,56 @@ class TestDatasetHandling:
 
             assert dataset is not None
             # Note: load_dataset pode não ser chamado devido ao cache local
+            mock_wandb_log.assert_called()
+
+    def test_load_and_prepare_dataset_mock_only(
+        self,
+        mock_model,
+        mock_peft,
+        mock_dataset,
+        temp_output_dir,
+    ):
+        """Testa carregamento e preparação do dataset com mocks apenas (sem rede)."""
+        with (
+            patch("src.finetuning.RobustGPUMonitor"),
+            patch("transformers.AutoTokenizer.from_pretrained") as mock_tokenizer_load,
+            patch("transformers.AutoModelForCausalLM.from_pretrained") as mock_model_load,
+            patch("datasets.load_dataset") as mock_load_dataset,
+            patch("wandb.init") as mock_wandb_init,
+            patch("wandb.log") as mock_wandb_log,
+        ):
+
+            # Configurar mocks
+            mock_tokenizer = Mock()
+            mock_tokenizer.pad_token = "[PAD]"
+            # Configurar o mock para retornar dicionários subscriptable
+            mock_tokenizer.return_value = {
+                "input_ids": [1, 2, 3, 4, 5],
+                "attention_mask": [1, 1, 1, 1, 1],
+            }
+            # Fazer o mock_tokenizer ser callable 
+            mock_tokenizer.side_effect = lambda *args, **kwargs: {
+                "input_ids": [1, 2, 3, 4, 5],
+                "attention_mask": [1, 1, 1, 1, 1],
+            }
+            mock_tokenizer_load.return_value = mock_tokenizer
+            mock_model_load.return_value = mock_model
+            mock_load_dataset.return_value = {
+                "train": mock_dataset,
+                "validation": mock_dataset,
+            }
+
+            tuner = LlamaFineTuner(
+                wandb_key="test_key", hf_token="test_token", output_dir=temp_output_dir
+            )
+
+            # Carregar modelo e tokenizer primeiro
+            tuner.load_model_and_tokenizer()
+
+            dataset = tuner.load_and_prepare_dataset()
+
+            assert dataset is not None
+            # Note: dataset pode usar cache local, não necessariamente chama load_dataset
             mock_wandb_log.assert_called()
 
     @patch("src.finetuning.load_dataset")
@@ -424,6 +475,7 @@ class TestModelSaving:
 class TestCompleteWorkflow:
     """Testa o workflow completo."""
 
+    @pytest.mark.network
     def test_run_complete_pipeline(
         self,
         mock_model,
@@ -466,6 +518,52 @@ class TestCompleteWorkflow:
                 mock_tokenizer_load.assert_called_once()
                 mock_model_load.assert_called_once()
                 # Note: load_dataset pode não ser chamado devido ao cache local
+                mock_trainer_class.assert_called_once()
+
+                assert result is not None
+
+    def test_run_complete_pipeline_mock_only(
+        self,
+        mock_model,
+        mock_tokenizer,
+        mock_dataset,
+        mock_gpu_monitor,
+        mock_peft,
+        temp_output_dir,
+    ):
+        """Testa execução completa do pipeline apenas com mocks (sem rede)."""
+        with (
+            patch("src.finetuning.Trainer") as mock_trainer_class,
+            patch("datasets.load_dataset") as mock_load_dataset,
+            patch("transformers.AutoModelForCausalLM.from_pretrained") as mock_model_load,
+            patch("transformers.AutoTokenizer.from_pretrained") as mock_tokenizer_load,
+            patch("wandb.init") as mock_wandb_init,
+            patch("wandb.log") as mock_wandb_log,
+            patch("huggingface_hub.login") as mock_hf_login,
+        ):
+            # Setup mocks
+            mock_tokenizer_load.return_value = mock_tokenizer
+            mock_model_load.return_value = mock_model
+            mock_load_dataset.return_value = {"train": mock_dataset}
+
+            mock_trainer = Mock()
+            mock_trainer.train.return_value = Mock()
+            mock_trainer_class.return_value = mock_trainer
+
+            with patch("src.finetuning.RobustGPUMonitor", return_value=mock_gpu_monitor):
+                tuner = LlamaFineTuner(
+                    wandb_key="test_key", hf_token="test_token", output_dir=temp_output_dir
+                )
+
+                # Executar pipeline
+                result = tuner.run_complete_pipeline()
+
+                # Verificar se todas as etapas foram executadas
+                mock_hf_login.assert_called_once()
+                mock_wandb_init.assert_called_once()
+                mock_tokenizer_load.assert_called_once()
+                mock_model_load.assert_called_once()
+                # Note: dataset pode usar cache local
                 mock_trainer_class.assert_called_once()
 
                 assert result is not None

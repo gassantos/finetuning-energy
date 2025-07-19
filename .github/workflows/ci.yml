@@ -36,4 +36,4 @@ jobs:
       run: uv sync --locked --all-extras --dev
 
     - name: 🧪 Executar testes com pytest
-      run:  uv run pytest --tb=no -v
+      run: uv run pytest --tb=no -v -m "not network"

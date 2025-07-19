@@ -22,6 +22,7 @@ class TestCompleteWorkflowIntegration:
     """Testa workflows completos de integração."""
 
     @pytest.mark.integration
+    @pytest.mark.network
     @patch("src.finetuning.LlamaFineTuner.train_with_robust_monitoring")
     @patch("wandb.init")
     @patch("wandb.log")
@@ -59,6 +60,53 @@ class TestCompleteWorkflowIntegration:
         mock_train_with_monitoring.assert_called_once()
 
         assert result is not None
+
+    @pytest.mark.integration
+    def test_complete_training_pipeline_offline(
+        self,
+        mock_model,
+        mock_tokenizer,
+        mock_dataset,
+        temp_output_dir,
+    ):
+        """Testa pipeline completo offline (sem dependências de rede)."""
+        
+        with (
+            patch("src.finetuning.LlamaFineTuner.train_with_robust_monitoring") as mock_train_with_monitoring,
+            patch("src.finetuning.LlamaFineTuner.apply_lora") as mock_apply_lora,
+            patch("transformers.AutoTokenizer.from_pretrained") as mock_tokenizer_load,
+            patch("transformers.AutoModelForCausalLM.from_pretrained") as mock_model_load,
+            patch("datasets.load_dataset") as mock_load_dataset,
+            patch("wandb.init") as mock_wandb_init,
+            patch("wandb.log") as mock_wandb_log,
+            patch("wandb.finish") as mock_wandb_finish,
+            patch("huggingface_hub.login") as mock_hf_login,
+        ):
+            
+            # Configurar mocks
+            mock_tokenizer_load.return_value = mock_tokenizer
+            mock_model_load.return_value = mock_model
+            mock_load_dataset.return_value = {"train": mock_dataset}
+            mock_apply_lora.return_value = None  # Mock da aplicação do LoRA
+            
+            # Mock do resultado do treinamento
+            mock_train_result = Mock()
+            mock_train_result.train.return_value = Mock()
+            mock_train_with_monitoring.return_value = mock_train_result
+
+            # Executar pipeline completo
+            tuner = LlamaFineTuner(
+                wandb_key="test_key", hf_token="test_token", output_dir=temp_output_dir
+            )
+
+            result = tuner.run_complete_pipeline()
+
+            # Verificar que as funções principais foram chamadas
+            mock_hf_login.assert_called_once()
+            mock_wandb_init.assert_called_once()
+            mock_train_with_monitoring.assert_called_once()
+
+            assert result is not None
 
     @pytest.mark.integration
     def test_gpu_monitor_integration(self):
