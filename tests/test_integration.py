@@ -5,10 +5,10 @@ Este módulo testa a integração entre todos os componentes do sistema,
 simulando workflows completos de fine-tuning.
 """
 
-import tempfile
+import os
 import time
 from pathlib import Path
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import Mock, patch
 
 import pytest
 import torch
@@ -23,11 +23,16 @@ class TestCompleteWorkflowIntegration:
 
     @pytest.mark.integration
     @pytest.mark.network
+    @pytest.mark.skip(reason="Requer conectividade - usar versão offline")
     @patch("src.finetuning.LlamaFineTuner.train_with_robust_monitoring")
     @patch("wandb.init")
     @patch("wandb.log")
     @patch("wandb.finish")
     @patch("huggingface_hub.login")
+    @patch.dict(os.environ, {
+        "HF_DATASETS_OFFLINE": "1",
+        "TRANSFORMERS_OFFLINE": "1"
+    })
     def test_complete_training_pipeline_mock(
         self,
         mock_hf_login,

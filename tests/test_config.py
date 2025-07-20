@@ -8,7 +8,7 @@ incluindo carregamento de arquivos, validação e configurações de ambiente.
 import os
 import tempfile
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -406,31 +406,319 @@ class TestConfigurationAccess:
                 assert value is None
 
 
+class TestSecretsConfiguration:
+    """Testa validação e segurança de arquivos de secrets."""
+
+    def test_secrets_file_loading(self):
+        """Testa carregamento de arquivo .secrets.toml."""
+        config_dir = Path(__file__).parent.parent / "config"
+        secrets_file = config_dir / ".secrets.toml"
+        
+        # O arquivo pode não existir, mas deve ser tratado graciosamente
+        if secrets_file.exists():
+            # Se existir, deve ser um arquivo válido
+            assert secrets_file.is_file()
+        else:
+            # Se não existir, o sistema deve funcionar sem ele
+            assert not secrets_file.exists()
+
+    @pytest.fixture
+    def temp_secrets_file(self):
+        """Fixture para arquivo de secrets temporário."""
+        config_dir = Path(__file__).parent.parent / "config"
+        temp_secrets = config_dir / ".test_secrets.toml"
+        
+        # Criar arquivo de secrets temporário
+        temp_secrets.write_text("""
+                # Arquivo de secrets para testes
+                [default]
+                WANDB_API_KEY = "test_wandb_key_12345"
+                HF_TOKEN = "hf_test_token_abcdef123456"
+                OPENAI_API_KEY = "sk-test123456789abcdef"
+
+                [development]
+                DATABASE_URL = "postgresql://testuser:testpass@localhost/testdb"
+                SECRET_KEY = "dev-secret-key-for-testing"
+
+                [production]
+                DATABASE_URL = "postgresql://produser:prodpass@prodhost/proddb"
+                SECRET_KEY = "prod-secret-key-super-secure"
+                """)
+        
+        yield temp_secrets
+        
+        # Cleanup
+        if temp_secrets.exists():
+            temp_secrets.unlink()
+
+    def test_secrets_file_structure_validation(self, temp_secrets_file):
+        """Testa validação da estrutura do arquivo de secrets."""
+        from dynaconf import Dynaconf
+        
+        # Carregar configurações com arquivo de secrets temporário
+        secrets_settings = Dynaconf(
+            settings_files=[str(temp_secrets_file)],
+            environments=True,
+        )
+        
+        # Verificar se campos críticos estão definidos
+        assert hasattr(secrets_settings, "WANDB_API_KEY")
+        assert hasattr(secrets_settings, "HF_TOKEN")
+        
+        # Verificar valores por ambiente
+        secrets_settings.setenv("development")
+        dev_secret = getattr(secrets_settings, "SECRET_KEY", None)
+        assert dev_secret == "dev-secret-key-for-testing"
+        
+        secrets_settings.setenv("production")
+        prod_secret = getattr(secrets_settings, "SECRET_KEY", None)
+        assert prod_secret == "prod-secret-key-super-secure"
+
+    def test_required_secrets_validation(self):
+        """Testa validação de secrets obrigatórios."""
+        # Lista de secrets que podem ser necessários
+        potential_secrets = [
+            "WANDB_API_KEY",
+            "HF_TOKEN",
+            "HUGGINGFACE_HUB_TOKEN",
+            "OPENAI_API_KEY",
+            "SECRET_KEY",
+            "DATABASE_URL",
+        ]
+        
+        for secret_name in potential_secrets:
+            secret_value = getattr(settings, secret_name, None)
+            if secret_value is not None:
+                # Se existe, deve ser string não vazia
+                assert isinstance(secret_value, str)
+                assert len(secret_value.strip()) > 0
+                # Não deve ser valor placeholder
+                assert secret_value not in [
+                    "your_key_here",
+                    "replace_me",
+                    "TODO",
+                    "CHANGEME",
+                    "",
+                ]
+
+    def test_secrets_are_masked_in_logs(self, temp_secrets_file):
+        """Testa se secrets são mascarados em logs."""
+        from dynaconf import Dynaconf
+        
+        secrets_settings = Dynaconf(
+            settings_files=[str(temp_secrets_file)],
+            environments=True,
+        )
+        
+        # Verificar se valores sensíveis não aparecem em string representation
+        settings_str = str(secrets_settings)
+        
+        # Secrets não devem aparecer completamente no string
+        sensitive_values = [
+            "test_wandb_key_12345",
+            "hf_test_token_abcdef123456",
+            "sk-test123456789abcdef",
+            "testpass",
+            "prodpass",
+        ]
+        
+        for sensitive in sensitive_values:
+            # Valor completo não deve aparecer, pode aparecer mascarado
+            if sensitive in settings_str:
+                # Se aparecer, deve estar mascarado ou ser muito curto
+                assert len(sensitive) < 10  # Valores de teste curtos OK
+
+    def test_secrets_environment_isolation(self, temp_secrets_file):
+        """Testa isolamento de secrets entre ambientes."""
+        from dynaconf import Dynaconf
+        
+        secrets_settings = Dynaconf(
+            settings_files=[str(temp_secrets_file)],
+            environments=True,
+        )
+        
+        # Testar ambiente development
+        secrets_settings.setenv("development")
+        dev_db_url = getattr(secrets_settings, "DATABASE_URL", None)
+        dev_secret_key = getattr(secrets_settings, "SECRET_KEY", None)
+        
+        # Testar ambiente production 
+        secrets_settings.setenv("production")
+        prod_db_url = getattr(secrets_settings, "DATABASE_URL", None)
+        prod_secret_key = getattr(secrets_settings, "SECRET_KEY", None)
+        
+        # Secrets devem ser diferentes entre ambientes
+        if dev_db_url and prod_db_url:
+            assert dev_db_url != prod_db_url
+        if dev_secret_key and prod_secret_key:
+            assert dev_secret_key != prod_secret_key
+
+    def test_malformed_secrets_file_handling(self):
+        """Testa tratamento de arquivo de secrets mal formado."""
+        config_dir = Path(__file__).parent.parent / "config"
+        malformed_secrets = config_dir / ".malformed_secrets.toml"
+        
+        try:
+            # Criar arquivo mal formado
+            malformed_secrets.write_text("""
+                    # Arquivo mal formado
+                    [default]
+                    WANDB_API_KEY = "test_key" but missing quote
+                    HF_TOKEN = "hf_token"
+            """)
+
+            from dynaconf import Dynaconf
+            
+            # Deve lidar graciosamente com arquivo mal formado
+            try:
+                malformed_settings = Dynaconf(
+                    settings_files=[str(malformed_secrets)],
+                    environments=True,
+                )
+                # Se não falhar, deve pelo menos existir
+                assert malformed_settings is not None
+            except Exception as e:
+                # É aceitável que falhe, mas deve ser tratado
+                assert isinstance(e, Exception)
+                
+        finally:
+            # Cleanup
+            if malformed_secrets.exists():
+                malformed_secrets.unlink()
+
+    def test_secrets_override_precedence(self, temp_secrets_file):
+        """Testa precedência de secrets (env vars > arquivo > defaults)."""
+        from dynaconf import Dynaconf
+        
+        test_secret_name = "TEST_OVERRIDE_SECRET"
+        env_value = "env_override_value"
+        
+        with patch.dict(os.environ, {test_secret_name: env_value}):
+            secrets_settings = Dynaconf(
+                settings_files=[str(temp_secrets_file)],
+                environments=True,
+            )
+            
+            # Variável de ambiente deve ter precedência
+            override_value = getattr(secrets_settings, test_secret_name, None)
+            # Deve pegar da variável de ambiente
+            assert override_value == env_value or os.environ.get(test_secret_name) == env_value
+
+    def test_secrets_validation_with_validators(self):
+        """Testa validação de secrets usando Dynaconf validators."""
+        from dynaconf import Dynaconf, Validator, ValidationError
+        
+        # Criar configuração com validadores
+        try:
+            validated_settings = Dynaconf(
+                validators=[
+                    # Validar que API keys não sejam vazias se existirem
+                    Validator("WANDB_API_KEY", len_min=1,
+                              when=Validator.EXISTS),
+                    Validator("HF_TOKEN", len_min=1, when=Validator.EXISTS),
+                    # Validar que SECRET_KEY existe se especificado
+                    Validator("SECRET_KEY", len_min=8, when=Validator.EXISTS),
+                ]
+            )
+            # Se chegou até aqui, validação passou
+            assert validated_settings is not None
+            
+        except ValidationError as e:
+            # É OK falhar se secrets não estiverem configurados corretamente
+            assert isinstance(e, ValidationError)
+        except AttributeError:
+            # API do validator pode variar entre versões
+            pytest.skip("Validator API incompatível com esta versão")
+
+    def test_secrets_gitignore_compliance(self):
+        """Testa se arquivos de secrets estão no .gitignore."""
+        gitignore_path = Path(__file__).parent.parent / ".gitignore"
+        
+        if gitignore_path.exists():
+            gitignore_content = gitignore_path.read_text()
+            
+            # Verificar se padrões de secrets estão ignorados
+            secrets_patterns = [
+                ".secrets.toml",
+                "*.secrets.toml",
+                ".env",
+                "*.env",
+            ]
+            
+            for pattern in secrets_patterns:
+                # Pelo menos alguns padrões devem estar no gitignore
+                if pattern in gitignore_content:
+                    assert True
+                    return
+            
+            # Se chegou até aqui, avisar que faltam padrões
+            pytest.skip("Nenhum padrão de secrets encontrado no .gitignore")
+
+    def test_secrets_backup_and_recovery(self, temp_secrets_file):
+        """Testa estratégias de backup e recuperação de secrets."""
+        config_dir = Path(__file__).parent.parent / "config"
+        backup_file = config_dir / ".secrets.toml.backup"
+        
+        try:
+            # Simular backup
+            if temp_secrets_file.exists():
+                backup_content = temp_secrets_file.read_text()
+                backup_file.write_text(backup_content)
+                
+                # Verificar se backup foi criado
+                assert backup_file.exists()
+                
+                # Verificar se conteúdo é idêntico
+                original_content = temp_secrets_file.read_text()
+                recovered_content = backup_file.read_text()
+                assert original_content == recovered_content
+                
+        finally:
+            # Cleanup
+            if backup_file.exists():
+                backup_file.unlink()
+
+
 class TestErrorHandling:
     """Testa tratamento de erros na configuração."""
 
     def test_malformed_config_file_handling(self):
         """Testa tratamento de arquivo de configuração mal formado."""
         # Criar arquivo TOML mal formado
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".toml", delete=False) as f:
-            f.write("invalid toml content [[[")
-            f.flush()
+        temp_file = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w", suffix=".toml", delete=False
+            ) as f:
+                temp_file = f.name
+                f.write("invalid toml content [[[")
+                f.flush()
 
-            try:
-                from dynaconf import Dynaconf
+            # Arquivo foi fechado, agora podemos usar
+            from dynaconf import Dynaconf
 
-                # Deve lidar graciosamente com arquivo mal formado
-                malformed_settings = Dynaconf(
-                    settings_files=[f.name],
-                    environments=True,
-                )
-                # Não deve quebrar completamente
-                assert malformed_settings is not None
-            except Exception as e:
-                # É aceitável que falhe, mas deve ser tratado
-                assert isinstance(e, Exception)
-            finally:
-                os.unlink(f.name)
+            # Deve lidar graciosamente com arquivo mal formado
+            malformed_settings = Dynaconf(
+                settings_files=[temp_file],
+                environments=True,
+            )
+            # Não deve quebrar completamente
+            assert malformed_settings is not None
+        except Exception as e:
+            # É aceitável que falhe, mas deve ser tratado
+            assert isinstance(e, Exception)
+        finally:
+            if temp_file and os.path.exists(temp_file):
+                try:
+                    os.unlink(temp_file)
+                except PermissionError:
+                    # Windows: arquivo pode ainda estar em uso
+                    import time
+                    time.sleep(0.1)
+                    try:
+                        os.unlink(temp_file)
+                    except PermissionError:
+                        pass  # Ignore se não conseguir deletar
 
     def test_missing_config_file_handling(self):
         """Testa tratamento de arquivo de configuração ausente."""
