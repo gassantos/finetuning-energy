@@ -1,7 +1,7 @@
 # Makefile para automação de testes e desenvolvimento
 # ===================================================
 
-.PHONY: help test test-unit test-integration test-slow test-coverage clean lint format install install-dev docs
+.PHONY: help test test-unit test-integration test-slow test-coverage clean lint format install install-dev docs setup check-config
 
 # Variáveis
 PYTHON = python
@@ -139,7 +139,7 @@ docs: ## Gera documentação (placeholder)
 # Informações do sistema
 info: ## Mostra informações do ambiente
 	@echo "=== Informações do Ambiente ==="
-	@echo "Python version: $$($(PYTHON) --version)"
+	@echo "Python version: $$($(UV) run $(PYTHON) --version)"
 	@echo "UV version: $$($(UV) --version)"
 	@echo "PyTest version: $$($(UV) run $(PYTEST) --version)"
 	@echo "Working directory: $$(pwd)"
@@ -150,6 +150,66 @@ info: ## Mostra informações do ambiente
 	@echo ""
 	@echo "=== Estrutura de Testes ==="
 	@find tests/ -name "*.py" | head -10
+
+# Setup e configuração inicial
+setup: ## Configura ambiente inicial (cria .secrets.toml se necessário)
+	@echo "=== Configuração Inicial ==="
+	@echo "Verificando arquivo de configuração de secrets..."
+	@if [ ! -f config/.secrets.toml ]; then \
+		echo "Criando config/.secrets.toml..."; \
+		echo "# Arquivo de configuração de secrets" > config/.secrets.toml; \
+		echo "# Este arquivo contém informações sensíveis e não deve ser commitado" >> config/.secrets.toml; \
+		echo "" >> config/.secrets.toml; \
+		echo "[global]" >> config/.secrets.toml; \
+		echo "# Token para Weights & Biases (https://wandb.ai/settings)" >> config/.secrets.toml; \
+		echo "WANDB_KEY = \"sua_wandb_key_aqui\"" >> config/.secrets.toml; \
+		echo "" >> config/.secrets.toml; \
+		echo "# Token para Hugging Face (https://huggingface.co/settings/tokens)" >> config/.secrets.toml; \
+		echo "HF_TOKEN = \"seu_hf_token_aqui\"" >> config/.secrets.toml; \
+		echo "" >> config/.secrets.toml; \
+		echo "[development]" >> config/.secrets.toml; \
+		echo "# Tokens específicos para desenvolvimento (opcional)" >> config/.secrets.toml; \
+		echo "" >> config/.secrets.toml; \
+		echo "[production]" >> config/.secrets.toml; \
+		echo "# Tokens específicos para produção (opcional)" >> config/.secrets.toml; \
+		echo ""; \
+		echo "✅ Arquivo config/.secrets.toml criado com sucesso!"; \
+		echo ""; \
+		echo "IMPORTANTE: Edite o arquivo config/.secrets.toml e adicione seus tokens:"; \
+		echo "  - WANDB_KEY: Token do Weights & Biases"; \
+		echo "  - HF_TOKEN: Token do Hugging Face"; \
+		echo ""; \
+		echo "Os tokens podem ser obtidos em:"; \
+		echo "  - WANDB: https://wandb.ai/settings"; \
+		echo "  - Hugging Face: https://huggingface.co/settings/tokens"; \
+	else \
+		echo "✅ Arquivo config/.secrets.toml já existe"; \
+	fi
+	@echo "=== Configuração Concluída ==="
+
+check-config: ## Verifica se as configurações estão válidas
+	@echo "=== Verificação de Configuração ==="
+	@if [ ! -f config/.secrets.toml ]; then \
+		echo "❌ Arquivo config/.secrets.toml não encontrado"; \
+		echo "Execute 'make setup' para criar o arquivo"; \
+		exit 1; \
+	fi
+	@echo "✅ Arquivo config/.secrets.toml encontrado"
+	@$(UV) run $(PYTHON) -c "from config.config import settings; \
+		print('✅ Configurações carregadas com sucesso'); \
+		print(f'  - WANDB_ENTITY: {settings.WANDB_ENTITY}'); \
+		print(f'  - WANDB_PROJECT: {settings.WANDB_PROJECT}'); \
+		print(f'  - MODEL_ID: {settings.MODEL_ID}'); \
+		try: \
+			wandb_key = str(settings.WANDB_KEY); \
+			hf_token = str(settings.HF_TOKEN); \
+			if 'sua_wandb_key_aqui' in wandb_key or 'seu_hf_token_aqui' in hf_token: \
+				print('⚠️  ATENÇÃO: Tokens ainda não foram configurados em .secrets.toml'); \
+			else: \
+				print('✅ Tokens configurados'); \
+		except Exception as e: \
+			print(f'❌ Erro ao carregar tokens: {e}');"
+	@echo "=== Verificação Concluída ==="
 
 # Regras especiais
 .DEFAULT_GOAL := help
