@@ -65,8 +65,32 @@ class TextPreprocessingConfig:
     save_formats: List[str] = field(default_factory=lambda: ['json', 'parquet'])
     
     def __post_init__(self):
-        """Pós-processamento de inicialização"""
-        pass
+        """Pós-processamento de inicialização e validação"""
+        # Validar comprimentos
+        if self.min_text_length >= self.max_text_length:
+            raise ValueError(
+                f"min_text_length ({self.min_text_length}) deve ser menor que "
+                f"max_text_length ({self.max_text_length})"
+            )
+        
+        if self.min_summary_length >= self.max_summary_length:
+            raise ValueError(
+                f"min_summary_length ({self.min_summary_length}) deve ser menor que "
+                f"max_summary_length ({self.max_summary_length})"
+            )
+        
+        # Validar tamanhos de split
+        if self.test_size + self.validation_size >= 1.0:
+            raise ValueError(
+                f"test_size ({self.test_size}) + validation_size ({self.validation_size}) "
+                f"deve ser menor que 1.0"
+            )
+        
+        if self.test_size <= 0 or self.test_size >= 1:
+            raise ValueError(f"test_size deve estar entre 0 e 1, recebido: {self.test_size}")
+        
+        if self.validation_size < 0 or self.validation_size >= 1:
+            raise ValueError(f"validation_size deve estar entre 0 e 1, recebido: {self.validation_size}")
 
 
 class TextCleaner:
@@ -249,10 +273,21 @@ class AdvancedTextProcessor:
         logger.info(f"Processamento concluído: {len(processed_records)} registros válidos, {skipped_records} ignorados")
         
         # Converter para formato de listas
-        self.processed_data = {
-            key: [record[key] for record in processed_records]
-            for key in processed_records[0].keys() if processed_records
-        }
+        if processed_records:
+            self.processed_data = {
+                key: [record[key] for record in processed_records]
+                for key in processed_records[0].keys()
+            }
+        else:
+            # Se não há registros válidos, retornar estrutura vazia
+            self.processed_data = {
+                'text': [],
+                'summary': [],
+                'title': []
+            }
+            # Adicionar colunas adicionais se configuradas
+            for col in self.config.additional_columns:
+                self.processed_data[col] = []
         
         return self.processed_data
     
