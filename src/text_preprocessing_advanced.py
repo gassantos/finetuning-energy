@@ -73,16 +73,16 @@ class TextCleaner:
     """Classe para limpeza e normalização de texto"""
     
     @staticmethod
-    def clean_text(text: str, config: TextPreprocessingConfig) -> str:
+    def clean_text(text: Any, config: TextPreprocessingConfig) -> str:
         """
         Limpa e normaliza texto
         
         Args:
-            text: Texto a ser limpo
+            text: Texto a ser limpo (qualquer tipo, mas apenas strings são processadas)
             config: Configuração de limpeza
             
         Returns:
-            Texto limpo
+            Texto limpo (string vazia se entrada não for string)
         """
         if not isinstance(text, str):
             return ""

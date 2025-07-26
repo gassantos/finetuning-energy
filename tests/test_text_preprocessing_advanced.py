@@ -112,9 +112,17 @@ class TestTextCleaner:
         """Testa tratamento de entrada não-string"""
         config = TextPreprocessingConfig()
         
+        # Test com tipos não-string - devem retornar string vazia
         assert TextCleaner.clean_text(None, config) == ""
         assert TextCleaner.clean_text(123, config) == ""
         assert TextCleaner.clean_text([], config) == ""
+        assert TextCleaner.clean_text({}, config) == ""
+        
+        # Test com string vazia - deve retornar string vazia
+        assert TextCleaner.clean_text("", config) == ""
+        
+        # Test com string válida - deve processar normalmente
+        assert TextCleaner.clean_text("texto", config) == "texto"
 
 
 class TestAdvancedTextProcessor:

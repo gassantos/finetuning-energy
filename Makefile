@@ -46,6 +46,11 @@ test-failed: ## Re-executa apenas testes que falharam
 test-watch: ## Executa testes em modo watch (requer pytest-watch)
 	$(UV) run ptw tests/ src/
 
+test-ci: ## Executa testes para CI/CD
+	$(UV) run $(PYTEST) -v --tb=no -m "not network"
+
+# test-ci-full: format-check lint ci-test ## Verificação completa para CI/CD
+
 # Análise de código
 lint: ## Executa linting
 	$(UV) run flake8 src tests
