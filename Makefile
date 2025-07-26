@@ -133,7 +133,7 @@ benchmark: ## Executa benchmarks
 
 # CI/CD
 ci-test: ## Testes para CI/CD
-	$(UV) run $(PYTEST) -v --tb=short --cov=src --cov-report=xml -m "not slow and not gpu"
+	$(UV) run $(PYTEST) --tb=no -v -m "not network"
 
 ci-full: format-check lint ci-test ## Verificação completa para CI/CD
 
