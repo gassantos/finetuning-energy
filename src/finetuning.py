@@ -8,8 +8,8 @@ from typing import Dict, Optional
 import huggingface_hub
 import torch
 import wandb
-from datasets import load_dataset
-from peft import LoraConfig, TaskType, get_peft_model, prepare_model_for_kbit_training
+from datasets import load_dataset, load_from_disk
+from peft import LoraConfig, TaskType, get_peft_model
 from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
@@ -17,7 +17,6 @@ from transformers import (
 from transformers.data.data_collator import DataCollatorForLanguageModeling
 from transformers.trainer import Trainer
 from transformers.training_args import TrainingArguments
-from transformers.utils.quantization_config import BitsAndBytesConfig
 
 from config.config import settings
 from src.monitor import RobustGPUMonitor
@@ -25,6 +24,15 @@ from src.monitor import RobustGPUMonitor
 # Configurar logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Importações opcionais para quantização
+try:
+    from transformers.utils.quantization_config import BitsAndBytesConfig
+    from peft import prepare_model_for_kbit_training
+    QUANTIZATION_AVAILABLE = True
+except ImportError:
+    logger.warning("BitsAndBytes/quantização não disponível. Executando sem quantização.")
+    QUANTIZATION_AVAILABLE = False
 
 
 def safe_cast(value, cast_func, default):
@@ -116,8 +124,11 @@ class LlamaFineTuner:
                 wandb.run.settings.mode = "offline"
 
     def setup_quantization_config(self):
-        """Configura quantização 4-bit com BitsAndBytes"""
-
+        """Configura quantização 4-bit com BitsAndBytes se disponível"""
+        if not QUANTIZATION_AVAILABLE:
+            logger.warning("Quantização não disponível, retornando None")
+            return None
+            
         return BitsAndBytesConfig(
             load_in_4bit=True,
             bnb_4bit_use_double_quant=True,
@@ -126,7 +137,7 @@ class LlamaFineTuner:
         )
 
     def load_model_and_tokenizer(self):
-        """Carrega o modelo e tokenizer com quantização"""
+        """Carrega o modelo e tokenizer com quantização se disponível"""
         logger.info(f"Carregando modelo: {self.model_id}")
         bnb_config = self.setup_quantization_config()
 
@@ -151,8 +162,12 @@ class LlamaFineTuner:
                 low_cpu_mem_usage=True,
             )
 
-            # Preparar modelo para treinamento k-bit
-            self.model = prepare_model_for_kbit_training(self.model)
+            # Preparar modelo para treinamento k-bit se quantização estiver disponível
+            if QUANTIZATION_AVAILABLE and bnb_config is not None:
+                self.model = prepare_model_for_kbit_training(self.model)
+                logger.info("Modelo preparado para treinamento k-bit")
+            else:
+                logger.info("Executando sem quantização k-bit")
 
             logger.info("Modelo e tokenizer carregados com sucesso")
 
@@ -171,32 +186,78 @@ class LlamaFineTuner:
             task_type=TaskType.CAUSAL_LM,
         )
 
-        self.model = prepare_model_for_kbit_training(self.model)
+        # Preparar modelo para k-bit training se disponível
+        if QUANTIZATION_AVAILABLE:
+            self.model = prepare_model_for_kbit_training(self.model)
+        
         self.model = get_peft_model(self.model, lora_config)
 
-    def load_and_prepare_dataset(self, num_samples: int = 10):
-        """Carrega e prepara o dataset para sumarização"""
-        dataset = load_dataset(str(settings.DATASET), split=f"train[:{num_samples}]")
+    def load_and_prepare_dataset(self, num_samples: int = 10, dataset_path: Optional[str] = None):
+        """Carrega e prepara o dataset para sumarização
+        
+        Args:
+            num_samples: Número de amostras (usado apenas para datasets HF)
+            dataset_path: Caminho para dataset processado localmente (opcional)
+        """
+        if dataset_path and Path(dataset_path).exists():
+            logger.info(f"Carregando dataset processado de: {dataset_path}")
+            # Carregar dataset processado localmente
+            dataset_dict = load_from_disk(dataset_path)
+            
+            # Usar split de treino, limitando amostras se necessário
+            if hasattr(dataset_dict, "keys") and "train" in dataset_dict:
+                dataset = dataset_dict["train"]
+            else:
+                dataset = dataset_dict
+                
+            if hasattr(dataset, "select") and num_samples and num_samples < len(dataset):
+                dataset = dataset.select(range(num_samples))
+                logger.info(f"Limitando dataset a {num_samples} amostras para desenvolvimento")
+        else:
+            logger.info(f"Carregando dataset HuggingFace: {settings.DATASET}")
+            # Fallback para dataset original do HuggingFace
+            dataset = load_dataset(str(settings.DATASET), split=f"train[:{num_samples}]")
 
         # Log de exemplo do dataset
         sample_data = []
         for i, example in enumerate(dataset):
             if i >= 5:  # Apenas 5 exemplos para evitar logs excessivos
                 break
-            sample_data.append(
-                [example["text"][:100] + "...", example["summary"][:100] + "..."]
-            )
+            
+            # Detectar formato do dataset (processado vs original)
+            if "text" in example and "summary" in example:
+                # Dataset processado
+                text_preview = example["text"][:100] + "..."
+                summary_preview = example["summary"][:100] + "..."
+            else:
+                # Dataset original (billsum)
+                text_preview = example["text"][:100] + "..."
+                summary_preview = example["summary"][:100] + "..."
+                
+            sample_data.append([text_preview, summary_preview])
 
         wandb.log(
             {
                 "dataset_sample": wandb.Table(
                     data=sample_data, columns=["text_preview", "summary_preview"]
-                )
+                ),
+                "dataset_size": getattr(dataset, "__len__", lambda: "unknown")(),
+                "dataset_source": "processed_local" if dataset_path else "huggingface"
             }
         )
 
         def preprocess(example):
-            prompt = f"Summarize:\n{example['text']}\nSummary:"
+            # Detectar formato do dataset e extrair campos apropriados
+            if "text" in example and "summary" in example:
+                # Dataset processado com campos padronizados
+                text = example["text"]
+                summary = example["summary"]
+            else:
+                # Dataset original (billsum) - usar campos originais
+                text = example["text"]
+                summary = example["summary"]
+                
+            prompt = f"Summarize:\n{text}\nSummary:"
             if self.tokenizer is None:
                 raise RuntimeError("Tokenizer não foi inicializado")
 
@@ -207,11 +268,10 @@ class LlamaFineTuner:
             return model_input
 
         # Obter nomes das colunas originais
-        original_columns = (
-            list(dataset.column_names)
-            if hasattr(dataset, "column_names") and dataset.column_names
-            else []
-        )
+        original_columns = []
+        if hasattr(dataset, "column_names") and dataset.column_names:
+            original_columns = list(dataset.column_names)
+            
         tokenized_dataset = dataset.map(preprocess, remove_columns=original_columns)
         return tokenized_dataset
 
@@ -318,8 +378,13 @@ class LlamaFineTuner:
             logger.error(f"Erro ao salvar modelo: {e}")
             raise
 
-    def run_complete_pipeline(self, num_samples: Optional[int] = None):
-        """Executa pipeline completo com monitoramento robusto"""
+    def run_complete_pipeline(self, num_samples: Optional[int] = None, dataset_path: Optional[str] = None):
+        """Executa pipeline completo com monitoramento robusto
+        
+        Args:
+            num_samples: Número de amostras (usado para desenvolvimento)
+            dataset_path: Caminho para dataset processado localmente (opcional)
+        """
         start_time = time.time()
 
         # Usar configuração se não especificado
@@ -338,7 +403,7 @@ class LlamaFineTuner:
         self.apply_lora()
 
         print("📊 Preparando dataset...")
-        tokenized_dataset = self.load_and_prepare_dataset(num_samples)
+        tokenized_dataset = self.load_and_prepare_dataset(num_samples, dataset_path)
 
         print("🎯 Iniciando treinamento...")
         trainer = self.train_with_robust_monitoring(tokenized_dataset)
