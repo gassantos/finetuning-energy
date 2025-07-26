@@ -175,7 +175,7 @@ class LlamaFineTuner:
         self.model = get_peft_model(self.model, lora_config)
 
     def load_and_prepare_dataset(self, num_samples: int = 10):
-        """Carrega e prepara o dataset BillSum"""
+        """Carrega e prepara o dataset para sumarização"""
         dataset = load_dataset(str(settings.DATASET), split=f"train[:{num_samples}]")
 
         # Log de exemplo do dataset

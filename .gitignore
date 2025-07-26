@@ -157,3 +157,4 @@ wandb
 llama*
 results
 tests/output
+data/processed

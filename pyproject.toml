@@ -12,6 +12,7 @@ dependencies = [
     "gpustat>=1.1.1",
     "huggingface-hub>=0.33.4",
     "nvitop>=1.5.1",
+    "openpyxl>=3.1.5",
     "peft>=0.16.0",
     "pynvml>=12.0.0",
     "python-dotenv>=1.1.1",

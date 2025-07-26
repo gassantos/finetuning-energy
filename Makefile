@@ -211,5 +211,50 @@ check-config: ## Verifica se as configurações estão válidas
 			print(f'❌ Erro ao carregar tokens: {e}');"
 	@echo "=== Verificação Concluída ==="
 
+# Pré-processamento Avançado de Texto
+demo-preprocessing-advanced: ## Demonstra o módulo de pré-processamento avançado
+	$(UV) run $(PYTHON) example_text_preprocessing.py
+
+test-preprocessing-advanced: ## Testa módulo de pré-processamento avançado
+	$(UV) run $(PYTEST) -v tests/test_text_preprocessing_advanced.py
+
+process-dataset-advanced: ## Processa dataset Excel para formato estruturado
+	@echo "Processando dataset para formato estruturado..."
+	$(UV) run $(PYTHON) -c "from src.text_preprocessing_advanced import process_excel_to_dataset; \
+		result = process_excel_to_dataset('data/dataset.xlsx'); \
+		print('✅ Processamento concluído!' if result['success'] else '❌ Erro no processamento'); \
+		print(f'Arquivos: {result[\"saved_files\"]}'); \
+		info = result['dataset_info']; \
+		print(f'Total: {info[\"total_examples\"]} exemplos'); \
+		for split, data in info['splits'].items(): \
+			print(f'  {split}: {data[\"num_examples\"]} exemplos');"
+
+validate-advanced-dataset: ## Valida dataset estruturado processado
+	@echo "Validando dataset estruturado..."
+	@if [ -d "data/processed" ]; then \
+		echo "✅ Diretório data/processed encontrado"; \
+		ls -la data/processed/; \
+		if [ -f "data/processed/dataset_simple.json" ]; then \
+			echo "✅ Arquivo JSON encontrado"; \
+			$(UV) run $(PYTHON) -c "import json; \
+				with open('data/processed/dataset_simple.json') as f: \
+					data = json.load(f); \
+				print(f'Registros: {len(data[\"text\"])}'); \
+				print(f'Features: {list(data.keys())}');" ; \
+		fi; \
+	else \
+		echo "❌ Execute 'make process-dataset-advanced' primeiro"; \
+	fi
+
+advanced-stats: ## Mostra estatísticas do dataset estruturado
+	$(UV) run $(PYTHON) -c "from src.text_preprocessing_advanced import AdvancedTextProcessor; \
+		processor = AdvancedTextProcessor(); \
+		processor.load_excel('data/dataset.xlsx'); \
+		processor.preprocess_data(); \
+		processor.create_dataset_splits(); \
+		info = processor.get_dataset_info(); \
+		import json; \
+		print(json.dumps(info, indent=2, ensure_ascii=False))"
+
 # Regras especiais
 .DEFAULT_GOAL := help
