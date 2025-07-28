@@ -47,13 +47,16 @@ except ImportError:
 class RobustGPUMonitor:
     """Classe robusta para monitoramento GPU com múltiplas estratégias de fallback"""
 
-    def __init__(self, sampling_interval: float = 1.0):
+    def __init__(self, sampling_interval: float = 1.0, enable_high_precision: bool = True):
         self.sampling_interval = sampling_interval
+        self.enable_high_precision = enable_high_precision
         self.monitoring = False
         self.energy_data = []
         self.monitor_thread = None
         self.monitoring_method = None
         self.devices = []
+        self.sync_markers = []  # Para sincronização com eventos externos
+        self.baseline_power = None  # Para cálculo de consumo diferencial
 
     def detect_monitoring_capabilities(self) -> Dict[str, bool]:
         """Detecta capacidades de monitoramento disponíveis"""
@@ -456,10 +459,18 @@ class RobustGPUMonitor:
 
         self.monitoring = True
         self.energy_data = []
+        self.sync_markers = []
+        
+        # Estabelecer baseline de consumo (primeiros 5 segundos sem carga)
+        if self.enable_high_precision:
+            self._establish_baseline()
+
         self.monitor_thread = threading.Thread(target=self._monitor_loop, daemon=True)
         self.monitor_thread.start()
 
         print(f"🔋 Monitoramento iniciado usando: {self.monitoring_method}")
+        if self.baseline_power:
+            print(f"📊 Baseline estabelecido: {self.baseline_power:.2f}W")
         return True
 
     def stop_monitoring(self) -> Dict:
@@ -472,6 +483,148 @@ class RobustGPUMonitor:
         print("🔋 Monitoramento finalizado")
         return self._process_energy_data()
 
+    def add_sync_marker(self, marker_type: str, step: int = None, epoch: float = None, metadata: Dict = None):
+        """
+        Adiciona marcador de sincronização para correlacionar com eventos do treinamento.
+        
+        Args:
+            marker_type: Tipo do marcador (step, epoch, checkpoint, etc.)
+            step: Número do step de treinamento
+            epoch: Número da época
+            metadata: Dados adicionais para contexto
+        """
+        marker = {
+            "timestamp": time.time(),
+            "type": marker_type,
+            "step": step,
+            "epoch": epoch,
+            "metadata": metadata or {}
+        }
+        self.sync_markers.append(marker)
+
+    def get_metrics_since_timestamp(self, since_timestamp: float) -> Dict:
+        """
+        Obtém métricas energéticas desde um timestamp específico.
+        Útil para cálculos incrementais por step ou intervalo.
+        """
+        if not self.energy_data:
+            return {"error": "Nenhum dado disponível"}
+
+        # Filtrar dados desde o timestamp
+        filtered_data = [
+            sample for sample in self.energy_data
+            if sample["timestamp"] >= since_timestamp
+        ]
+
+        if not filtered_data:
+            return {"error": "Nenhum dado no período especificado"}
+
+        # Processar dados filtrados
+        return self._process_filtered_energy_data(filtered_data, since_timestamp)
+
+    def _establish_baseline(self):
+        """Estabelece baseline de consumo energético sem carga de trabalho"""
+        print("📊 Estabelecendo baseline energético...")
+        
+        baseline_samples = []
+        baseline_duration = 5  # 5 segundos para baseline
+        
+        start_time = time.time()
+        while time.time() - start_time < baseline_duration:
+            # Coletar amostra
+            if self.monitoring_method == "nvitop":
+                gpu_metrics = self._collect_nvitop_data()
+            elif self.monitoring_method == "pynvml":
+                gpu_metrics = self._collect_pynvml_data()
+            elif self.monitoring_method == "nvidia_smi":
+                gpu_metrics = self._collect_nvidia_smi_data()
+            else:
+                break
+
+            if gpu_metrics:
+                baseline_samples.append(gpu_metrics)
+            
+            time.sleep(self.sampling_interval)
+
+        # Calcular baseline médio
+        if baseline_samples:
+            total_power = 0
+            sample_count = 0
+            
+            for sample in baseline_samples:
+                for gpu_data in sample:
+                    if "error" not in gpu_data:
+                        total_power += gpu_data.get("power_draw_w", 0)
+                        sample_count += 1
+            
+            if sample_count > 0:
+                self.baseline_power = total_power / sample_count
+                print(f"✅ Baseline estabelecido: {self.baseline_power:.2f}W")
+            else:
+                print("⚠️ Não foi possível estabelecer baseline")
+
+    def _process_filtered_energy_data(self, filtered_data: List[Dict], since_timestamp: float) -> Dict:
+        """Processa dados energéticos filtrados para um período específico"""
+        if not filtered_data:
+            return {"error": "Nenhum dado para processar"}
+
+        duration_s = time.time() - since_timestamp
+        total_samples = len(filtered_data)
+
+        # Processar por GPU
+        gpu_metrics = {}
+        gpu_ids = set()
+        
+        for sample in filtered_data:
+            for gpu_data in sample["gpus"]:
+                if "error" not in gpu_data:
+                    gpu_ids.add(gpu_data["gpu_id"])
+
+        for gpu_id in gpu_ids:
+            power_samples = []
+            temp_samples = []
+            util_samples = []
+            memory_samples = []
+            gpu_name = "Unknown"
+
+            # Coletar amostras para esta GPU
+            for sample in filtered_data:
+                for gpu_data in sample["gpus"]:
+                    if gpu_data.get("gpu_id") == gpu_id and "error" not in gpu_data:
+                        power_samples.append(gpu_data.get("power_draw_w", 0))
+                        temp_samples.append(gpu_data.get("temperature_c", 0))
+                        util_samples.append(gpu_data.get("utilization_gpu_percent", 0))
+                        memory_samples.append(gpu_data.get("memory_used_mb", 0))
+                        gpu_name = gpu_data.get("name", "Unknown")
+
+            if power_samples:
+                # Calcular consumo diferencial (subtraindo baseline)
+                baseline_adjusted_power = max(0, sum(power_samples) / len(power_samples) - (self.baseline_power or 0))
+                duration_hours = duration_s / 3600
+                
+                gpu_metrics[f"gpu_{gpu_id}"] = {
+                    "power_avg_w": sum(power_samples) / len(power_samples),
+                    "power_max_w": max(power_samples),
+                    "power_min_w": min(power_samples),
+                    "power_baseline_adjusted_w": baseline_adjusted_power,
+                    "energy_consumed_wh": baseline_adjusted_power * duration_hours,
+                    "energy_consumed_kwh": (baseline_adjusted_power * duration_hours) / 1000,
+                    "temperature_avg_c": sum(temp_samples) / len(temp_samples) if temp_samples else 0,
+                    "temperature_max_c": max(temp_samples) if temp_samples else 0,
+                    "utilization_avg_percent": sum(util_samples) / len(util_samples) if util_samples else 0,
+                    "memory_used_avg_mb": sum(memory_samples) / len(memory_samples) if memory_samples else 0,
+                    "name": gpu_name,
+                    "samples_count": len(power_samples)
+                }
+
+        return {
+            "monitoring_method": self.monitoring_method,
+            "duration_s": duration_s,
+            "total_samples": total_samples,
+            "baseline_power_w": self.baseline_power,
+            "gpus": gpu_metrics
+        }
+
     def _process_energy_data(self) -> Dict:
         """Processa dados coletados"""
         if not self.energy_data:
@@ -482,6 +635,9 @@ class RobustGPUMonitor:
             "monitoring_duration_s": 0,
             "total_samples": len(self.energy_data),
             "sampling_interval_s": self.sampling_interval,
+            "baseline_power_w": self.baseline_power,
+            "sync_markers": self.sync_markers,
+            "high_precision_enabled": self.enable_high_precision,
             "gpus": {},
         }
 
@@ -529,16 +685,18 @@ class RobustGPUMonitor:
                 power_samples = gpu_samples["power_samples_w"]
                 duration_hours = processed_data["monitoring_duration_s"] / 3600
 
+                # Calcular consumo baseline-adjusted
+                baseline_adjusted_avg = max(0, sum(power_samples) / len(power_samples) - (self.baseline_power or 0))
+
                 gpu_samples["statistics"] = {
                     "power_avg_w": sum(power_samples) / len(power_samples),
                     "power_max_w": max(power_samples),
                     "power_min_w": min(power_samples),
-                    "energy_consumed_wh": (sum(power_samples) / len(power_samples))
-                    * duration_hours,
-                    "energy_consumed_kwh": (
-                        (sum(power_samples) / len(power_samples)) * duration_hours
-                    )
-                    / 1000,
+                    "power_baseline_adjusted_w": baseline_adjusted_avg,
+                    "energy_consumed_wh": (sum(power_samples) / len(power_samples)) * duration_hours,
+                    "energy_consumed_baseline_adjusted_wh": baseline_adjusted_avg * duration_hours,
+                    "energy_consumed_kwh": ((sum(power_samples) / len(power_samples)) * duration_hours) / 1000,
+                    "energy_consumed_baseline_adjusted_kwh": (baseline_adjusted_avg * duration_hours) / 1000,
                 }
 
                 if gpu_samples["temperature_samples_c"]:
@@ -547,6 +705,24 @@ class RobustGPUMonitor:
                     ) / len(gpu_samples["temperature_samples_c"])
                     gpu_samples["statistics"]["temperature_max_c"] = max(
                         gpu_samples["temperature_samples_c"]
+                    )
+
+                # Adicionar estatísticas de utilização
+                if gpu_samples["utilization_gpu_samples"]:
+                    gpu_samples["statistics"]["utilization_avg_percent"] = sum(
+                        gpu_samples["utilization_gpu_samples"]
+                    ) / len(gpu_samples["utilization_gpu_samples"])
+                    gpu_samples["statistics"]["utilization_max_percent"] = max(
+                        gpu_samples["utilization_gpu_samples"]
+                    )
+
+                # Adicionar estatísticas de memória
+                if gpu_samples["memory_used_samples_mb"]:
+                    gpu_samples["statistics"]["memory_used_avg_mb"] = sum(
+                        gpu_samples["memory_used_samples_mb"]
+                    ) / len(gpu_samples["memory_used_samples_mb"])
+                    gpu_samples["statistics"]["memory_used_max_mb"] = max(
+                        gpu_samples["memory_used_samples_mb"]
                     )
 
             processed_data["gpus"][f"gpu_{gpu_id}"] = gpu_samples

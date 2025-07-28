@@ -20,6 +20,7 @@ from transformers.training_args import TrainingArguments
 
 from config.config import settings
 from src.monitor import RobustGPUMonitor
+from src.energy_callback import EnergyTrackingCallback
 
 # Configurar logging
 logging.basicConfig(level=logging.INFO)
@@ -70,7 +71,8 @@ class LlamaFineTuner:
         self.model = None
         self.tokenizer = None
         self.gpu_monitor = RobustGPUMonitor(
-            sampling_interval=safe_cast(settings.MONITORING_INTERVAL, float, 1.0)
+            sampling_interval=safe_cast(settings.MONITORING_INTERVAL, float, 1.0),
+            enable_high_precision=True
         )
 
         # Criar diretório de saída se não existir
@@ -111,6 +113,9 @@ class LlamaFineTuner:
                 "quantization": str(settings.QUANTIZATION),
                 "monitoring_capabilities": capabilities,
                 "monitoring_interval_s": self.gpu_monitor.sampling_interval,
+                "energy_sync_interval_s": 10.0,
+                "high_precision_monitoring": True,
+                "baseline_power_enabled": True,
             },
         )
         # Configurar modo do wandb
@@ -291,7 +296,7 @@ class LlamaFineTuner:
         )
 
     def train_with_robust_monitoring(self, tokenized_dataset):
-        """Executa treinamento com monitoramento"""
+        """Executa treinamento com monitoramento energético sincronizado"""
         if self.model is None or self.tokenizer is None:
             raise RuntimeError(
                 "Modelo e tokenizer devem ser carregados antes do treinamento"
@@ -299,25 +304,40 @@ class LlamaFineTuner:
 
         setup_training_args = self.setup_training_arguments()
 
-        # Não usar EarlyStoppingCallback para evitar problemas de compatibilidade
+        # Criar callback de monitoramento energético
+        energy_callback = EnergyTrackingCallback(
+            gpu_monitor=self.gpu_monitor,
+            sync_interval_s=10.0  # Sincronização a cada 10 segundos
+        )
+
+        # Configurar trainer com callback energético
         trainer = Trainer(
             model=self.model,
             args=setup_training_args,
             train_dataset=tokenized_dataset,
             data_collator=DataCollatorForLanguageModeling(self.tokenizer, mlm=False),
+            callbacks=[energy_callback]  # Adicionar callback de energia
         )
 
-        # Iniciar monitoramento
-        print("🔋 Iniciando monitoramento ...")
-        monitoring_started = self.gpu_monitor.start_monitoring()
-
+        print("🔋 Iniciando treinamento com monitoramento energético sincronizado...")
+        
         try:
+            # O monitoramento será gerenciado pelo callback
             trainer.train()
-        finally:
-            if monitoring_started:
-                energy_data = self.gpu_monitor.stop_monitoring()
-                self._log_energy_data_to_wandb(energy_data)
-                self._save_energy_data(energy_data)
+        except Exception as e:
+            print(f"❌ Erro durante o treinamento: {e}")
+            # Garantir que o monitoramento seja parado mesmo em caso de erro
+            if self.gpu_monitor.monitoring:
+                self.gpu_monitor.stop_monitoring()
+            raise
+
+        print("✅ Treinamento finalizado com sucesso!")
+
+        # Obter histórico de energia do callback
+        energy_history = energy_callback.get_energy_history()
+        
+        # Salvar dados detalhados
+        self._save_detailed_energy_data(energy_history)
 
         return trainer
 
@@ -362,6 +382,36 @@ class LlamaFineTuner:
             json.dump(energy_data, f, indent=2, default=str)
 
         print(f"💾 Dados energéticos salvos em: {filename}")
+
+    def _save_detailed_energy_data(self, energy_history: Dict):
+        """Salva dados energéticos detalhados do callback"""
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        
+        # Salvar histórico por step
+        if energy_history["step_history"]:
+            step_filename = self.result_dir / f"energy_step_history_{timestamp}.json"
+            with open(step_filename, "w") as f:
+                json.dump(energy_history["step_history"], f, indent=2, default=str)
+            print(f"💾 Histórico por step salvo em: {step_filename}")
+        
+        # Salvar histórico por intervalo
+        if energy_history["interval_history"]:
+            interval_filename = self.result_dir / f"energy_interval_history_{timestamp}.json"
+            with open(interval_filename, "w") as f:
+                json.dump(energy_history["interval_history"], f, indent=2, default=str)
+            print(f"💾 Histórico por intervalo salvo em: {interval_filename}")
+        
+        # Salvar resumo
+        summary = {
+            "total_logged_steps": energy_history["total_logged_steps"],
+            "total_intervals": energy_history["total_intervals"],
+            "monitoring_summary": "Monitoramento sincronizado com alta precisão"
+        }
+        
+        summary_filename = self.result_dir / f"energy_monitoring_summary_{timestamp}.json"
+        with open(summary_filename, "w") as f:
+            json.dump(summary, f, indent=2, default=str)
+        print(f"💾 Resumo do monitoramento salvo em: {summary_filename}")
 
     def save_model(self, output_dir: Optional[str] = None):
         """Salva o modelo fine-tuned"""

@@ -42,11 +42,22 @@ O módulo de fine-tuning foi atualizado para:
 
 ### 📈 Monitoramento Energético
 
-Sistema robusto de monitoramento que rastreia:
+Sistema robusto de monitoramento energético sincronizado que rastreia:
 
-- Consumo de GPU (NVIDIA-SMI, PyNVML, nvitop)
-- Métricas de treinamento (W&B)
-- Performance e eficiência energética
+- **Consumo de GPU** (NVIDIA-SMI, PyNVML, nvitop)
+- **Métricas sincronizadas** (a cada 10s + por step de treinamento)
+- **Baseline energético** (consumo diferencial preciso)
+- **Eficiência energética** (Wh por step, scores de performance)
+- **Pegada de carbono** (estimativa de CO2)
+- **Logging estruturado** (Wandb + arquivos locais)
+
+#### Funcionalidades Avançadas:
+- ✅ **Sincronização dupla**: Intervalos fixos + steps de treinamento
+- ✅ **Alta precisão**: Baseline automático para cálculos diferenciais  
+- ✅ **Callback nativo**: Integração perfeita com Transformers
+- ✅ **Métricas de eficiência**: Análise automatizada de performance energética
+- ✅ **Relatórios detalhados**: Histórico completo por step e intervalo
+- ✅ **Estimativa de CO2**: Consciência ambiental no desenvolvimento
 
 
 ## Pré-processamento de Dados
@@ -142,18 +153,31 @@ finetuning-energy/
 ## 📊 Exemplo Prático
 
 ```bash
-# 1. Executar pipeline
+# 1. Executar pipeline com monitoramento avançado
 uv run python main.py
 
 # 2. Monitorar progresso (Weights & Biases)
-# Acesse wandb.ai para ver métricas em tempo real
+# Acesse wandb.ai para ver métricas em tempo real:
+# - energy_interval/*: Métricas a cada 10s
+# - energy_step/*: Métricas por step de treinamento
+# - final_energy/*: Relatório final com eficiência
+
+# 3. Executar exemplos de monitoramento
+uv run python examples/energy_monitoring_examples.py
 ```
 
 ### Resultado Esperado
 - Dataset processado: `data/processed`
 - Modelo fine-tuned: `results/llama_finetuned/`
-- Logs de energia: `results/energy_logs.json`
-- Métricas W&B: `Dashboard online com consumo e performance`
+- **Logs energéticos sincronizados**: 
+  - `results/energy_step_history_*.json`
+  - `results/energy_interval_history_*.json`
+  - `results/energy_monitoring_summary_*.json`
+- **Dashboard W&B com métricas avançadas**:
+  - Consumo por step e intervalo
+  - Scores de eficiência energética
+  - Correlação performance x energia
+  - Estimativa de pegada de carbono
 
 ### Executar Testes
 
