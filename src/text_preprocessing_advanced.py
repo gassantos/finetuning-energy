@@ -243,8 +243,8 @@ class AdvancedTextProcessor:
                 summary = TextCleaner.clean_text(str(row[self.config.summary_column]), self.config)
                 title = TextCleaner.clean_text(str(row[self.config.title_column]), self.config)
                 
-                # Validar comprimentos
-                if not self._validate_lengths(text, summary):
+                # Validar comprimentos e conteúdo
+                if not self._validate_lengths(text, summary, title):
                     skipped_records += 1
                     continue
                 
@@ -289,11 +289,23 @@ class AdvancedTextProcessor:
         
         return self.processed_data
     
-    def _validate_lengths(self, text: str, summary: str) -> bool:
+    def _validate_lengths(self, text: str, summary: str, title: Optional[str] = None) -> bool:
         """Valida comprimentos dos campos de texto"""
         text_len = len(text)
         summary_len = len(summary)
         
+        # Verificar comprimentos mínimos
+        if text_len < self.config.min_text_length:
+            return False
+        
+        if summary_len < self.config.min_summary_length:
+            return False
+        
+        # Verificar se título não está vazio (se fornecido)
+        if title is not None and len(title.strip()) == 0:
+            return False
+        
+        # Verificar comprimentos máximos
         if text_len > self.config.max_text_length:
             return False
         
