@@ -311,16 +311,16 @@ class EnergyTrackingCallback(TrainerCallback):
         
         # Criar resumo textual
         summary = f"""
-🔋 RELATÓRIO ENERGÉTICO FINAL:
-• Duração: {final_metrics['total_duration_s']:.0f}s ({final_metrics['total_duration_s']/3600:.2f}h)
-• Steps: {final_metrics['total_steps']}
-• Épocas: {final_metrics['total_epochs']:.2f}
-• Energia total: {final_metrics['total_energy_consumed_kwh']:.4f} kWh
-• Potência média: {final_metrics['avg_power_w']:.1f}W
-• Energia por step: {final_metrics['energy_per_step_wh']:.2f}Wh
-• Energia por época: {final_metrics['energy_per_epoch_kwh']:.4f}kWh
-• Score de eficiência: {final_metrics['energy_efficiency_score']:.4f}
-• Pegada de carbono estimada: {final_metrics['carbon_footprint_estimate_kg']:.6f}kg CO2
+            🔋 RELATÓRIO ENERGÉTICO FINAL:
+            • Duração: {final_metrics['total_duration_s']:.0f}s ({final_metrics['total_duration_s']/3600:.2f}h)
+            • Steps: {final_metrics['total_steps']}
+            • Épocas: {final_metrics['total_epochs']:.2f}
+            • Energia total: {final_metrics['total_energy_consumed_kwh']:.4f} kWh
+            • Potência média: {final_metrics['avg_power_w']:.1f}W
+            • Energia por step: {final_metrics['energy_per_step_wh']:.2f}Wh
+            • Energia por época: {final_metrics['energy_per_epoch_kwh']:.4f}kWh
+            • Score de eficiência: {final_metrics['energy_efficiency_score']:.4f}
+            • Pegada de carbono estimada: {final_metrics['carbon_footprint_estimate_kg']:.6f}kg CO2
         """
         
         print(summary)

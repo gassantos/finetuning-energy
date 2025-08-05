@@ -1,8 +1,10 @@
 from src.finetuning import LlamaFineTuner
 from src.text_preprocessing_advanced import process_excel_to_dataset
+from src.utils import process_texto_resumo_tokens
 from config.config import settings
 from pathlib import Path
 import logging
+import pandas as pd
 
 # Configurar logging
 logging.basicConfig(
@@ -23,16 +25,23 @@ def preprocess_dataset():
     # Verificar se arquivo existe
     if not excel_file.exists():
         raise FileNotFoundError(f"Dataset não encontrado: {excel_file}")
-    
+
+    df  = pd.read_excel(excel_file)
+    process_texto_resumo_tokens(df, dataset_path=str(excel_file))
+
+    # Exibir informações de tokens
+    df_tokens = pd.read_csv("data/dataset_tokens.csv")
+    print(df_tokens)
+
     # Configurações de pré-processamento para sumarização
     config_params = {
         "text_column": "Texto",
         "summary_column": "Resumo", 
         "title_column": "Processo",
-        "min_text_length": 100,        # Textos muito curtos não são úteis para sumarização
-        "max_text_length": 8000,       # Limite para modelos de linguagem
-        "min_summary_length": 20,      # Resumos muito curtos não são informativos
-        "max_summary_length": 1000,    # Resumos muito longos perdem o propósito
+        "min_text_length": 100,                           # Textos muito curtos não são úteis para sumarização
+        "max_text_length": df_tokens["tokens_texto"].max(),      # Limite para modelos de linguagem
+        "min_summary_length": 100,                        # Resumos muito curtos não são informativos
+        "max_summary_length": df_tokens["tokens_resumo"].max(),  # Resumos muito longos perdem o propósito
         "test_size": 0.15,             # 15% para teste
         "validation_size": 0.10,       # 10% para validação 
         "clean_text": True,            # Ativar limpeza de texto

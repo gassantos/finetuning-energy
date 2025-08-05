@@ -15,13 +15,12 @@ import re
 import unicodedata
 import json
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Union, Any
+from typing import Dict, List, Optional, Union, Any
 from dataclasses import dataclass, asdict, field
 from datetime import datetime
 import logging
 from datasets import Dataset, DatasetDict
 from sklearn.model_selection import train_test_split
-import warnings
 
 # Configurar logging
 logging.basicConfig(
@@ -138,7 +137,6 @@ class TextCleaner:
             'â€œ': '"',
             'â€\u009d': '"',
             'â€"': '—',
-            'â€"': '–',
         }
         
         for old, new in replacements.items():
@@ -296,10 +294,10 @@ class AdvancedTextProcessor:
         text_len = len(text)
         summary_len = len(summary)
         
-        if text_len < self.config.min_text_length or text_len > self.config.max_text_length:
+        if text_len > self.config.max_text_length:
             return False
         
-        if summary_len < self.config.min_summary_length or summary_len > self.config.max_summary_length:
+        if summary_len > self.config.max_summary_length:
             return False
         
         return True

@@ -21,19 +21,12 @@ from transformers.training_args import TrainingArguments
 from config.config import settings
 from src.monitor import RobustGPUMonitor
 from src.energy_callback import EnergyTrackingCallback
+from transformers.utils.quantization_config import BitsAndBytesConfig
+from peft import prepare_model_for_kbit_training
 
 # Configurar logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-# Importações opcionais para quantização
-try:
-    from transformers.utils.quantization_config import BitsAndBytesConfig
-    from peft import prepare_model_for_kbit_training
-    QUANTIZATION_AVAILABLE = True
-except ImportError:
-    logger.warning("BitsAndBytes/quantização não disponível. Executando sem quantização.")
-    QUANTIZATION_AVAILABLE = False
 
 
 def safe_cast(value, cast_func, default):
@@ -130,9 +123,6 @@ class LlamaFineTuner:
 
     def setup_quantization_config(self):
         """Configura quantização 4-bit com BitsAndBytes se disponível"""
-        if not QUANTIZATION_AVAILABLE:
-            logger.warning("Quantização não disponível, retornando None")
-            return None
             
         return BitsAndBytesConfig(
             load_in_4bit=True,
@@ -167,13 +157,7 @@ class LlamaFineTuner:
                 low_cpu_mem_usage=True,
             )
 
-            # Preparar modelo para treinamento k-bit se quantização estiver disponível
-            if QUANTIZATION_AVAILABLE and bnb_config is not None:
-                self.model = prepare_model_for_kbit_training(self.model)
-                logger.info("Modelo preparado para treinamento k-bit")
-            else:
-                logger.info("Executando sem quantização k-bit")
-
+            self.model = prepare_model_for_kbit_training(self.model)
             logger.info("Modelo e tokenizer carregados com sucesso")
 
         except Exception as e:
@@ -190,14 +174,11 @@ class LlamaFineTuner:
             bias="none",
             task_type=TaskType.CAUSAL_LM,
         )
-
-        # Preparar modelo para k-bit training se disponível
-        if QUANTIZATION_AVAILABLE:
-            self.model = prepare_model_for_kbit_training(self.model)
         
+        self.model = prepare_model_for_kbit_training(self.model)
         self.model = get_peft_model(self.model, lora_config)
 
-    def load_and_prepare_dataset(self, num_samples: int = 10, dataset_path: Optional[str] = None):
+    def load_and_prepare_dataset(self, num_samples: int = 1000, dataset_path: Optional[str] = None):
         """Carrega e prepara o dataset para sumarização
         
         Args:
@@ -226,8 +207,8 @@ class LlamaFineTuner:
         # Log de exemplo do dataset
         sample_data = []
         for i, example in enumerate(dataset):
-            if i >= 5:  # Apenas 5 exemplos para evitar logs excessivos
-                break
+            # if i >= 5:  # Apenas 5 exemplos para evitar logs excessivos
+            #     break
             
             # Detectar formato do dataset (processado vs original)
             if "text" in example and "summary" in example:
@@ -437,9 +418,9 @@ class LlamaFineTuner:
         """
         start_time = time.time()
 
-        # Usar configuração se não especificado
-        if num_samples is None:
-            num_samples = safe_cast(settings.DATASET_NUM_SAMPLES, int, 10)
+        # # Usar configuração se não especificado
+        # if num_samples is None:
+        #     num_samples = safe_cast(settings.DATASET_NUM_SAMPLES, int, 1000)
 
         print("🚀 Iniciando fine-tuning com monitoramento robusto...")
 
@@ -453,7 +434,8 @@ class LlamaFineTuner:
         self.apply_lora()
 
         print("📊 Preparando dataset...")
-        tokenized_dataset = self.load_and_prepare_dataset(num_samples, dataset_path)
+        tokenized_dataset = self.load_and_prepare_dataset(num_samples=settings.DATASET_NUM_SAMPLES, 
+                                                          dataset_path=dataset_path)
 
         print("🎯 Iniciando treinamento...")
         trainer = self.train_with_robust_monitoring(tokenized_dataset)
