@@ -6,10 +6,7 @@ com o sistema de treinamento.
 """
 
 import tempfile
-from pathlib import Path
-from unittest.mock import Mock, patch
 
-import pytest
 
 # Imports do transformers
 from transformers.trainer_callback import EarlyStoppingCallback
@@ -124,10 +121,10 @@ def test_early_stopping():
             training_args.save_steps == 10
         ), "Save steps não foi configurado corretamente"
         assert (
-            training_args.greater_is_better == False
+            not training_args.greater_is_better
         ), "Greater is better não foi configurado corretamente"
         assert (
-            training_args.load_best_model_at_end == True
+            training_args.load_best_model_at_end
         ), "Load best model at end não foi configurado"
 
 
