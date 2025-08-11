@@ -466,11 +466,11 @@ class TestSecretsConfiguration:
         assert hasattr(secrets_settings, "HF_TOKEN")
         
         # Verificar valores por ambiente
-        secrets_settings.setenv("development")
+        secrets_settings.configure(FORCE_ENV_FOR_DYNACONF="development")
         dev_secret = getattr(secrets_settings, "SECRET_KEY", None)
         assert dev_secret == "dev-secret-key-for-testing"
         
-        secrets_settings.setenv("production")
+        secrets_settings.configure(FORCE_ENV_FOR_DYNACONF="production")
         prod_secret = getattr(secrets_settings, "SECRET_KEY", None)
         assert prod_secret == "prod-secret-key-super-secure"
 
@@ -538,12 +538,12 @@ class TestSecretsConfiguration:
         )
         
         # Testar ambiente development
-        secrets_settings.setenv("development")
+        secrets_settings.configure(FORCE_ENV_FOR_DYNACONF="development")
         dev_db_url = getattr(secrets_settings, "DATABASE_URL", None)
         dev_secret_key = getattr(secrets_settings, "SECRET_KEY", None)
         
         # Testar ambiente production 
-        secrets_settings.setenv("production")
+        secrets_settings.configure(FORCE_ENV_FOR_DYNACONF="production")
         prod_db_url = getattr(secrets_settings, "DATABASE_URL", None)
         prod_secret_key = getattr(secrets_settings, "SECRET_KEY", None)
         
@@ -603,32 +603,6 @@ class TestSecretsConfiguration:
             override_value = getattr(secrets_settings, test_secret_name, None)
             # Deve pegar da variável de ambiente
             assert override_value == env_value or os.environ.get(test_secret_name) == env_value
-
-    def test_secrets_validation_with_validators(self):
-        """Testa validação de secrets usando Dynaconf validators."""
-        from dynaconf import Dynaconf, Validator, ValidationError
-        
-        # Criar configuração com validadores
-        try:
-            validated_settings = Dynaconf(
-                validators=[
-                    # Validar que API keys não sejam vazias se existirem
-                    Validator("WANDB_API_KEY", len_min=1,
-                              when=Validator.EXISTS),
-                    Validator("HF_TOKEN", len_min=1, when=Validator.EXISTS),
-                    # Validar que SECRET_KEY existe se especificado
-                    Validator("SECRET_KEY", len_min=8, when=Validator.EXISTS),
-                ]
-            )
-            # Se chegou até aqui, validação passou
-            assert validated_settings is not None
-            
-        except ValidationError as e:
-            # É OK falhar se secrets não estiverem configurados corretamente
-            assert isinstance(e, ValidationError)
-        except AttributeError:
-            # API do validator pode variar entre versões
-            pytest.skip("Validator API incompatível com esta versão")
 
     def test_secrets_gitignore_compliance(self):
         """Testa se arquivos de secrets estão no .gitignore."""

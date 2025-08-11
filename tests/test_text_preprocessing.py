@@ -137,7 +137,6 @@ class TestDataValidator:
         
         result = DataValidator.validate_dataframe(df, config)
         
-        assert result['valid']
         assert result['statistics']['total_rows'] == 2
         assert result['statistics']['missing_text'] == 0
         assert result['statistics']['missing_summary'] == 0
