@@ -8,17 +8,10 @@ import pynvml
 
 from config.config import settings
 from src.logging_config import get_monitor_logger
+from src.utils.common import safe_cast
 
 # Configurar logging estruturado para monitoramento
 monitor_logger = get_monitor_logger()
-
-
-def safe_cast(value, cast_func, default):
-    """Helper para fazer cast seguro de valores do dynaconf"""
-    try:
-        return cast_func(value)
-    except (ValueError, TypeError):
-        return default
 
 
 # Importações robustas para monitoramento GPU
@@ -155,42 +148,42 @@ class RobustGPUMonitor:
             try:
                 pynvml.nvmlDeviceGetPowerUsage(handle)
                 functions["power_draw"] = True
-            except:
+            except Exception:
                 pass
 
             # Testar temperatura
             try:
                 pynvml.nvmlDeviceGetTemperature(handle, pynvml.NVML_TEMPERATURE_GPU)
                 functions["temperature"] = True
-            except:
+            except Exception:
                 pass
 
             # Testar utilização
             try:
                 pynvml.nvmlDeviceGetUtilizationRates(handle)
                 functions["utilization"] = True
-            except:
+            except Exception:
                 pass
 
             # Testar informações de memória
             try:
                 pynvml.nvmlDeviceGetMemoryInfo(handle)
                 functions["memory_info"] = True
-            except:
+            except Exception:
                 pass
 
             # Testar processos v2
             try:
                 pynvml.nvmlDeviceGetComputeRunningProcesses_v2(handle)
                 functions["processes_v2"] = True
-            except:
+            except Exception:
                 pass
 
             # Testar processos v1 (fallback)
             try:
                 pynvml.nvmlDeviceGetComputeRunningProcesses(handle)
                 functions["processes_v1"] = True
-            except:
+            except Exception:
                 pass
 
         except Exception as e:
@@ -291,7 +284,7 @@ class RobustGPUMonitor:
         """Obtém atributo de forma segura com fallback"""
         try:
             return getattr(device, attr_name)()
-        except:
+        except Exception:
             return default_value
 
     def _collect_pynvml_data(self) -> List[Dict]:
@@ -318,7 +311,7 @@ class RobustGPUMonitor:
                 # Nome da GPU
                 try:
                     metrics["name"] = pynvml.nvmlDeviceGetName(handle).decode()
-                except:
+                except Exception:
                     pass
 
                 # Potência (se disponível)
@@ -327,7 +320,7 @@ class RobustGPUMonitor:
                         metrics["power_draw_w"] = (
                             pynvml.nvmlDeviceGetPowerUsage(handle) / 1000.0
                         )
-                    except:
+                    except Exception:
                         pass
 
                 # Temperatura
@@ -336,7 +329,7 @@ class RobustGPUMonitor:
                         metrics["temperature_c"] = pynvml.nvmlDeviceGetTemperature(
                             handle, pynvml.NVML_TEMPERATURE_GPU
                         )
-                    except:
+                    except Exception:
                         pass
 
                 # Utilização
@@ -345,7 +338,7 @@ class RobustGPUMonitor:
                         util = pynvml.nvmlDeviceGetUtilizationRates(handle)
                         metrics["utilization_gpu_percent"] = util.gpu
                         metrics["utilization_memory_percent"] = util.memory
-                    except:
+                    except Exception:
                         pass
 
                 # Memória
@@ -356,7 +349,7 @@ class RobustGPUMonitor:
                         metrics["memory_total_mb"] = int(mem_info.total) // (
                             1024 * 1024
                         )
-                    except:
+                    except Exception:
                         pass
 
                 gpu_metrics.append(metrics)

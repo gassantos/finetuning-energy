@@ -23,19 +23,12 @@ from src.energy_callback import EnergyTrackingCallback
 from transformers.utils.quantization_config import BitsAndBytesConfig
 from peft import prepare_model_for_kbit_training
 from src.logging_config import get_finetuning_logger, get_model_logger, get_training_logger
+from src.utils.common import safe_cast
 
 # Configurar logging estruturado
 logger = get_finetuning_logger()
 model_logger = get_model_logger()
 training_logger = get_training_logger()
-
-
-def safe_cast(value, cast_func, default):
-    """Helper para fazer cast seguro de valores do dynaconf"""
-    try:
-        return cast_func(value)
-    except (ValueError, TypeError):
-        return default
 
 
 class LlamaFineTuner:
@@ -172,9 +165,19 @@ class LlamaFineTuner:
             )
 
             self.model = prepare_model_for_kbit_training(self.model)
+            
+            # Obter informações do modelo de forma segura para logs
+            vocab_size = "unknown"
+            model_params = "unknown"
+            try:
+                vocab_size = len(self.tokenizer) if hasattr(self.tokenizer, '__len__') else getattr(self.tokenizer, 'vocab_size', 'unknown')
+                model_params = sum(p.numel() for p in self.model.parameters()) if hasattr(self.model, 'parameters') else 'unknown'
+            except Exception:
+                pass
+                
             model_logger.info("Modelo e tokenizer carregados com sucesso", 
-                             vocab_size=len(self.tokenizer),
-                             model_parameters=sum(p.numel() for p in self.model.parameters()))
+                             vocab_size=vocab_size,
+                             model_parameters=model_params)
 
         except Exception as e:
             model_logger.error("Erro ao carregar modelo", error=str(e))
