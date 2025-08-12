@@ -137,12 +137,42 @@ class EnergyTrackingCallback(TrainerCallback):
             since_last_sync, current_time, current_step, current_epoch
         )
     
-    def _aggregate_gpu_metrics(self, samples: list, current_time: float, current_step: int, current_epoch: float) -> EnergyMetrics:
+    def _aggregate_gpu_metrics(self, samples: list, current_time: float, current_step: int, current_epoch: float) -> Optional[EnergyMetrics]:
         """Agrega métricas de todas as GPUs em um período"""
-        total_power_samples = []
-        total_temp_samples = []
-        total_util_samples = []
-        total_memory_samples = []
+        # Extrair dados de todas as GPUs
+        aggregated_data = self._extract_all_gpu_data(samples)
+        
+        if not aggregated_data["power_samples"]:
+            return None
+            
+        # Calcular métricas baseado nos dados agregados
+        duration_s = current_time - (self.last_sync_time or current_time)
+        metrics = self._calculate_aggregated_metrics(aggregated_data, duration_s)
+        
+        # Criar objeto EnergyMetrics
+        return EnergyMetrics(
+            timestamp=current_time,
+            step=current_step,
+            epoch=current_epoch,
+            power_avg_w=metrics["power_avg"],
+            power_max_w=metrics["power_max"],
+            power_min_w=metrics["power_min"],
+            energy_consumed_wh=metrics["energy_wh"],
+            temperature_avg_c=metrics["temp_avg"],
+            temperature_max_c=metrics["temp_max"],
+            utilization_avg_percent=metrics["util_avg"],
+            memory_used_avg_mb=metrics["memory_avg"],
+            gpu_name=", ".join(aggregated_data["gpu_names"]),
+            duration_s=duration_s,
+            samples_count=len(samples)
+        )
+
+    def _extract_all_gpu_data(self, samples: list) -> dict:
+        """Extrai dados de todas as GPUs de todas as amostras"""
+        power_samples = []
+        temp_samples = []
+        util_samples = []
+        memory_samples = []
         gpu_names = set()
         
         for sample in samples:
@@ -150,40 +180,42 @@ class EnergyTrackingCallback(TrainerCallback):
                 if "error" not in gpu_data:
                     # Suportar ambos formatos
                     power_value = gpu_data.get("power_w") or gpu_data.get("power_draw_w", 0)
-                    total_power_samples.append(power_value)
-                    total_temp_samples.append(gpu_data.get("temperature_c", 0))
+                    power_samples.append(power_value)
+                    temp_samples.append(gpu_data.get("temperature_c", 0))
                     # Suportar ambos formatos de utilização
                     util_value = gpu_data.get("utilization_percent") or gpu_data.get("utilization_gpu_percent", 0)
-                    total_util_samples.append(util_value)
-                    total_memory_samples.append(gpu_data.get("memory_used_mb", 0))
+                    util_samples.append(util_value)
+                    memory_samples.append(gpu_data.get("memory_used_mb", 0))
                     gpu_names.add(gpu_data.get("name", "Unknown"))
         
-        if not total_power_samples:
-            return None
-            
-        duration_s = current_time - self.last_sync_time
+        return {
+            "power_samples": power_samples,
+            "temp_samples": temp_samples,
+            "util_samples": util_samples,
+            "memory_samples": memory_samples,
+            "gpu_names": gpu_names
+        }
+
+    def _calculate_aggregated_metrics(self, aggregated_data: dict, duration_s: float) -> dict:
+        """Calcula métricas agregadas baseado nos dados coletados"""
+        power_samples = aggregated_data["power_samples"]
+        temp_samples = aggregated_data["temp_samples"]
+        util_samples = aggregated_data["util_samples"]
+        memory_samples = aggregated_data["memory_samples"]
+        
         duration_h = duration_s / 3600
+        power_avg = sum(power_samples) / len(power_samples)
         
-        # Calcular estatísticas
-        power_avg = sum(total_power_samples) / len(total_power_samples)
-        energy_wh = power_avg * duration_h
-        
-        return EnergyMetrics(
-            timestamp=current_time,
-            step=current_step,
-            epoch=current_epoch,
-            power_avg_w=power_avg,
-            power_max_w=max(total_power_samples) if total_power_samples else 0,
-            power_min_w=min(total_power_samples) if total_power_samples else 0,
-            energy_consumed_wh=energy_wh,
-            temperature_avg_c=sum(total_temp_samples) / len(total_temp_samples) if total_temp_samples else 0,
-            temperature_max_c=max(total_temp_samples) if total_temp_samples else 0,
-            utilization_avg_percent=sum(total_util_samples) / len(total_util_samples) if total_util_samples else 0,
-            memory_used_avg_mb=sum(total_memory_samples) / len(total_memory_samples) if total_memory_samples else 0,
-            gpu_name=", ".join(gpu_names),
-            duration_s=duration_s,
-            samples_count=len(samples)
-        )
+        return {
+            "power_avg": power_avg,
+            "power_max": max(power_samples) if power_samples else 0,
+            "power_min": min(power_samples) if power_samples else 0,
+            "energy_wh": power_avg * duration_h,
+            "temp_avg": sum(temp_samples) / len(temp_samples) if temp_samples else 0,
+            "temp_max": max(temp_samples) if temp_samples else 0,
+            "util_avg": sum(util_samples) / len(util_samples) if util_samples else 0,
+            "memory_avg": sum(memory_samples) / len(memory_samples) if memory_samples else 0,
+        }
     
     def _log_interval_metrics(self, metrics: EnergyMetrics):
         """Log métricas por intervalo de tempo (10s)"""
@@ -239,15 +271,14 @@ class EnergyTrackingCallback(TrainerCallback):
         if "error" in final_energy_data:
             return {"error": final_energy_data["error"]}
             
-        total_duration_s = time.time() - self.training_start_time
+        total_duration_s = time.time() - (self.training_start_time or time.time())
         total_steps = state.global_step
-        total_epochs = state.epoch
+        total_epochs = state.epoch or 0
         
         # Agregar dados de todas as GPUs
         total_energy_kwh = 0
         avg_power_w = 0
         max_temperature_c = 0
-        avg_utilization = 0
         
         for gpu_key, gpu_data in final_energy_data.get("gpus", {}).items():
             if "statistics" in gpu_data:
@@ -258,7 +289,7 @@ class EnergyTrackingCallback(TrainerCallback):
         
         # Calcular eficiência final
         energy_per_step_wh = (total_energy_kwh * 1000) / max(1, total_steps)
-        energy_per_epoch_kwh = total_energy_kwh / max(1, total_epochs)
+        energy_per_epoch_kwh = total_energy_kwh / max(1.0, float(total_epochs))
         
         return {
             "total_duration_s": total_duration_s,

@@ -204,104 +204,148 @@ class LlamaFineTuner:
             num_samples: Número de amostras (usado apenas para datasets HF)
             dataset_path: Caminho para dataset processado localmente (opcional)
         """
-        if dataset_path and Path(dataset_path).exists():
-            logger.info("Carregando dataset processado", path=dataset_path)
-            
-            # Verificar se é um arquivo JSONL ou diretório
-            dataset_path_obj = Path(dataset_path)
-            
-            if dataset_path_obj.is_file() and dataset_path_obj.suffix == '.jsonl':
-                # Carregar arquivo JSONL diretamente
-                logger.info("Carregando arquivo JSONL", file_size=dataset_path_obj.stat().st_size)
-                dataset = load_dataset('json', data_files=str(dataset_path), split='train')
-                logger.info("Dataset JSONL carregado", samples=len(dataset))
-                
-            elif dataset_path_obj.is_dir():
-                # Carregar diretório de datasets do HuggingFace
-                logger.info("Carregando diretório de dataset")
-                dataset_dict = load_from_disk(str(dataset_path))
-                
-                # Usar split de treino, limitando amostras se necessário
-                if hasattr(dataset_dict, "keys") and "train" in dataset_dict:
-                    dataset = dataset_dict["train"]
-                else:
-                    dataset = dataset_dict
-            else:
-                logger.error("Caminho de dataset inválido", path=dataset_path)
-                raise ValueError(f"Caminho de dataset inválido: {dataset_path}")
-                
-        else:
-            logger.info("Carregando dataset HuggingFace", 
-                       dataset_name=str(settings.DATASET),
-                       samples=num_samples)
-            # Fallback para dataset billsum do HuggingFace
-            dataset = load_dataset(str(settings.DATASET), split=f"train[:{num_samples}]")
-
+        # Carregar dataset
+        dataset = self._load_dataset_from_source(dataset_path, num_samples)
+        
         # Log algumas amostras do dataset
         self._log_dataset_samples(dataset)
 
+        # Tokenizar dataset
+        tokenized_dataset = self._tokenize_dataset(dataset)
+        return tokenized_dataset
+
+    def _load_dataset_from_source(self, dataset_path: Optional[str], num_samples: int):
+        """Carrega dataset de fonte local ou HuggingFace"""
+        if dataset_path and Path(dataset_path).exists():
+            return self._load_local_dataset(dataset_path)
+        else:
+            return self._load_huggingface_dataset(num_samples)
+
+    def _load_local_dataset(self, dataset_path: str):
+        """Carrega dataset de arquivo ou diretório local"""
+        logger.info("Carregando dataset processado", path=dataset_path)
+        dataset_path_obj = Path(dataset_path)
+        
+        if dataset_path_obj.is_file() and dataset_path_obj.suffix == '.jsonl':
+            return self._load_jsonl_file(dataset_path_obj)
+        elif dataset_path_obj.is_dir():
+            return self._load_dataset_directory(dataset_path_obj)
+        else:
+            logger.error("Caminho de dataset inválido", path=dataset_path)
+            raise ValueError(f"Caminho de dataset inválido: {dataset_path}")
+
+    def _load_jsonl_file(self, dataset_path_obj: Path):
+        """Carrega arquivo JSONL"""
+        logger.info("Carregando arquivo JSONL", file_size=dataset_path_obj.stat().st_size)
+        dataset = load_dataset('json', data_files=str(dataset_path_obj), split='train')
+        logger.info("Dataset JSONL carregado", samples=len(dataset))
+        return dataset
+
+    def _load_dataset_directory(self, dataset_path_obj: Path):
+        """Carrega diretório de dataset"""
+        logger.info("Carregando diretório de dataset")
+        dataset_dict = load_from_disk(str(dataset_path_obj))
+        
+        # Usar split de treino se disponível
+        if hasattr(dataset_dict, "keys") and "train" in dataset_dict:
+            return dataset_dict["train"]
+        else:
+            return dataset_dict
+
+    def _load_huggingface_dataset(self, num_samples: int):
+        """Carrega dataset do HuggingFace"""
+        logger.info("Carregando dataset HuggingFace", 
+                   dataset_name=str(settings.DATASET),
+                   samples=num_samples)
+        return load_dataset(str(settings.DATASET), split=f"train[:{num_samples}]")
+
+    def _tokenize_dataset(self, dataset):
+        """Tokeniza o dataset usando função de pré-processamento"""
         def preprocess(example):
-            # Detectar formato do dataset e extrair campos apropriados
-            if "text" in example:
-                # Dataset processado com template já aplicado ou dataset original
-                text = example["text"]
-                
-                # Para datasets com template já aplicado (como nosso JSONL processado)
-                # o campo "text" já contém o template completo
-                if "[INST]" in text and "[/INST]" in text:
-                    # Usar texto como está (já tem template)
-                    input_text = text
-                else:
-                    # Aplicar template para datasets sem template
-                    input_text = f"Summarize:\n{text}\nSummary:"
+            input_text = self._prepare_input_text(example)
+            return self._tokenize_example(input_text)
+
+        # Obter colunas originais de forma segura
+        original_columns = self._get_original_columns(dataset)
+        tokenized_dataset = dataset.map(preprocess, remove_columns=original_columns)
+        return tokenized_dataset
+
+    def _prepare_input_text(self, example) -> str:
+        """Prepara o texto de input baseado no formato do dataset"""
+        if "text" in example:
+            text = example["text"]
+            
+            # Para datasets com template já aplicado
+            if "[INST]" in text and "[/INST]" in text:
+                return text
             else:
-                # Fallback para formato original
-                input_text = f"Summarize:\n{example.get('text', '')}\nSummary:"
-                
-            if self.tokenizer is None:
-                raise RuntimeError("Tokenizer não foi inicializado")
+                return f"Summarize:\n{text}\nSummary:"
+        else:
+            # Fallback para formato original
+            return f"Summarize:\n{example.get('text', '')}\nSummary:"
 
-            model_input = self.tokenizer(
-                input_text, truncation=True, padding="max_length", max_length=512
-            )
-            model_input["labels"] = model_input["input_ids"].copy()
-            return model_input
+    def _tokenize_example(self, input_text: str) -> dict:
+        """Tokeniza um exemplo individual"""
+        if self.tokenizer is None:
+            raise RuntimeError("Tokenizer não foi inicializado")
 
-        # Obter nomes das colunas originais de forma segura
-        original_columns = []
+        model_input = self.tokenizer(
+            input_text, truncation=True, padding="max_length", max_length=512
+        )
+        model_input["labels"] = model_input["input_ids"].copy()
+        return model_input
+
+    def _get_original_columns(self, dataset) -> list:
+        """Obtém nomes das colunas originais de forma segura"""
         try:
             if hasattr(dataset, "column_names") and dataset.column_names:
-                original_columns = list(dataset.column_names)  # type: ignore
+                return list(dataset.column_names)
         except Exception:
-            # Ignorar erros de acesso às colunas
             pass
-            
-        tokenized_dataset = dataset.map(preprocess, remove_columns=original_columns)  # type: ignore
-        return tokenized_dataset
+        return []
 
     def _log_dataset_samples(self, dataset):
         """Log algumas amostras do dataset para verificação"""
         try:
-            sample_data = []
-            for i, example in enumerate(dataset):
-                if i >= 3:  # Apenas 3 exemplos para evitar logs excessivos
-                    break
-                
-                # Detectar formato do dataset (processado vs original)
-                if "text" in example:
-                    text_preview = str(example["text"])[:150] + "..."
-                    sample_data.append([f"Exemplo {i+1}", text_preview])
-                    
+            sample_data = self._extract_sample_data(dataset)
+            
             if sample_data:
-                wandb.log({
-                    "dataset_sample": wandb.Table(
-                        data=sample_data, columns=["exemplo", "conteúdo"]
-                    ),
-                    "dataset_source": "processed_local" if hasattr(self, 'dataset_path') else "huggingface"
-                })
+                self._log_samples_to_wandb(sample_data)
                 logger.info("Dataset samples enviadas para Wandb", samples_count=len(sample_data))
         except Exception as e:
             logger.warning("Não foi possível fazer log das amostras", error=str(e))
+
+    def _extract_sample_data(self, dataset, max_samples: int = 3) -> list:
+        """Extrai dados de amostra do dataset"""
+        sample_data = []
+        
+        try:
+            for i, example in enumerate(dataset):
+                if i >= max_samples:
+                    break
+                
+                if "text" in example:
+                    text_preview = str(example["text"])[:150] + "..."
+                    sample_data.append([f"Exemplo {i+1}", text_preview])
+        except (TypeError, AttributeError):
+            # Dataset não é iterável ou não tem o formato esperado
+            logger.warning("Dataset não é iterável ou formato inválido para extração de amostras")
+            return []
+        
+        return sample_data
+
+    def _log_samples_to_wandb(self, sample_data: list):
+        """Faz log das amostras no Wandb"""
+        wandb.log({
+            "dataset_sample": wandb.Table(
+                data=sample_data, columns=["exemplo", "conteúdo"]
+            ),
+            "dataset_source": self._get_dataset_source_type()
+        })
+
+    def _get_dataset_source_type(self) -> str:
+        """Determina o tipo de fonte do dataset"""
+        return "processed_local" if hasattr(self, 'dataset_path') else "huggingface"
 
     def setup_training_arguments(self):
         """Configura argumentos de treinamento"""

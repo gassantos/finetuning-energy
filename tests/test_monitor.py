@@ -374,74 +374,60 @@ class TestNvidiaSmiMonitoring:
 class TestMonitoringLifecycle:
     """Testa o ciclo de vida do monitoramento."""
 
-    @patch("src.monitor.RobustGPUMonitor.initialize_nvitop_monitoring")
-    @patch("src.monitor.RobustGPUMonitor.initialize_pynvml_monitoring")
-    @patch("src.monitor.RobustGPUMonitor.initialize_nvidia_smi_monitoring")
-    def test_start_monitoring_nvitop_success(
-        self, mock_nvidia_smi, mock_pynvml, mock_nvitop
-    ):
-        """Testa início bem-sucedido com nvitop."""
-        mock_nvitop.return_value = True
+    @patch("src.monitor.GPUStrategyFactory.get_available_strategies")
+    def test_start_monitoring_nvitop_success(self, mock_factory):
+        """Testa início bem-sucedido com Strategy Pattern."""
+        # Mock do factory retornando uma lista com estratégia disponível
+        mock_strategy = Mock()
+        mock_strategy.get_strategy_name.return_value = "nvitop"
+        mock_factory.return_value = [mock_strategy]
 
-        monitor = RobustGPUMonitor()
+        # Desabilitar alta precisão para evitar baseline em testes
+        monitor = RobustGPUMonitor(enable_high_precision=False)
         result = monitor.start_monitoring()
 
         assert result is True
         assert monitor.monitoring is True
         assert monitor.monitor_thread is not None
-        mock_nvitop.assert_called_once()
-        mock_pynvml.assert_not_called()
-        mock_nvidia_smi.assert_not_called()
+        mock_factory.assert_called_once()
 
-    @patch("src.monitor.RobustGPUMonitor.initialize_nvitop_monitoring")
-    @patch("src.monitor.RobustGPUMonitor.initialize_pynvml_monitoring")
-    @patch("src.monitor.RobustGPUMonitor.initialize_nvidia_smi_monitoring")
-    def test_start_monitoring_fallback_to_pynvml(
-        self, mock_nvidia_smi, mock_pynvml, mock_nvitop
-    ):
-        """Testa fallback para pynvml quando nvitop falha."""
-        mock_nvitop.return_value = False
-        mock_pynvml.return_value = True
+    @patch("src.monitor.GPUStrategyFactory.get_available_strategies")
+    def test_start_monitoring_fallback_to_pynvml(self, mock_factory):
+        """Testa fallback para pynvml usando Strategy Pattern."""
+        # Mock do factory retornando estratégia pynvml
+        mock_strategy = Mock()
+        mock_strategy.get_strategy_name.return_value = "pynvml"
+        mock_factory.return_value = [mock_strategy]
 
-        monitor = RobustGPUMonitor()
+        # Desabilitar alta precisão para evitar baseline em testes
+        monitor = RobustGPUMonitor(enable_high_precision=False)
         result = monitor.start_monitoring()
 
         assert result is True
         assert monitor.monitoring is True
-        mock_nvitop.assert_called_once()
-        mock_pynvml.assert_called_once()
-        mock_nvidia_smi.assert_not_called()
+        mock_factory.assert_called_once()
 
-    @patch("src.monitor.RobustGPUMonitor.initialize_nvitop_monitoring")
-    @patch("src.monitor.RobustGPUMonitor.initialize_pynvml_monitoring")
-    @patch("src.monitor.RobustGPUMonitor.initialize_nvidia_smi_monitoring")
-    def test_start_monitoring_fallback_to_nvidia_smi(
-        self, mock_nvidia_smi, mock_pynvml, mock_nvitop
-    ):
-        """Testa fallback para nvidia-smi quando nvitop e pynvml falham."""
-        mock_nvitop.return_value = False
-        mock_pynvml.return_value = False
-        mock_nvidia_smi.return_value = True
+    @patch("src.monitor.GPUStrategyFactory.get_available_strategies")
+    def test_start_monitoring_fallback_to_nvidia_smi(self, mock_factory):
+        """Testa fallback para nvidia-smi usando Strategy Pattern."""
+        # Mock do factory retornando estratégia nvidia-smi
+        mock_strategy = Mock()
+        mock_strategy.get_strategy_name.return_value = "nvidia-smi"
+        mock_factory.return_value = [mock_strategy]
 
-        monitor = RobustGPUMonitor()
+        # Desabilitar alta precisão para evitar baseline em testes
+        monitor = RobustGPUMonitor(enable_high_precision=False)
         result = monitor.start_monitoring()
 
         assert result is True
         assert monitor.monitoring is True
-        mock_nvitop.assert_called_once()
-        mock_pynvml.assert_called_once()
-        mock_nvidia_smi.assert_called_once()
+        mock_factory.assert_called_once()
 
-    @patch("src.monitor.RobustGPUMonitor.initialize_nvitop_monitoring")
-    @patch("src.monitor.RobustGPUMonitor.initialize_pynvml_monitoring")
-    @patch("src.monitor.RobustGPUMonitor.initialize_nvidia_smi_monitoring")
-    def test_start_monitoring_all_methods_fail(
-        self, mock_nvidia_smi, mock_pynvml, mock_nvitop
-    ):
-        """Testa quando todos os métodos de monitoramento falham."""
-        mock_nvitop.return_value = False
-        mock_pynvml.return_value = False
-        mock_nvidia_smi.return_value = False
+    @patch("src.monitor.GPUStrategyFactory.get_available_strategies")
+    def test_start_monitoring_all_methods_fail(self, mock_factory):
+        """Testa quando nenhuma estratégia está disponível."""
+        # Mock do factory retornando lista vazia (nenhuma estratégia disponível)
+        mock_factory.return_value = []
 
         monitor = RobustGPUMonitor()
         result = monitor.start_monitoring()
