@@ -691,12 +691,6 @@ class TestIntegration:
         """Testa monitoramento de GPU real (teste lento)."""
         pytest.skip("Teste de integração - requer GPU real")
 
-    @pytest.mark.slow
-    @pytest.mark.integration
-    def test_long_running_monitoring(self):
-        """Testa monitoramento de longa duração (teste lento)."""
-        pytest.skip("Teste de integração - demora muito tempo")
-
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

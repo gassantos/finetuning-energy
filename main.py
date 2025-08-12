@@ -1,11 +1,26 @@
+"""
+Sistema de fine-tuning de modelos com monitoramento de energia e performance.
+"""
+
+import warnings
+
 from src.finetuning import LlamaFineTuner
 from config.config import settings
 from src.logging_config import setup_project_logging, get_pipeline_logger
-
 from src.text_preprocessing import (
     PreprocessingConfig,
     process_text_data
 )
+
+# Configurar filtros de warnings antes dos imports das bibliotecas pesadas
+warnings.filterwarnings("ignore", category=UserWarning, 
+                       message=r".*pin_memory.*argument is set as true but no accelerator is found.*")
+warnings.filterwarnings("ignore", category=UserWarning,
+                       message=r".*torch\.utils\.checkpoint.*use_reentrant parameter should be passed explicitly.*")
+warnings.filterwarnings("ignore", category=UserWarning,
+                       message=r".*could not find a program.*")
+warnings.filterwarnings("ignore", category=UserWarning,
+                       message=r".*does not have many workers.*")
 
 # Configurar logging estruturado
 setup_project_logging()

@@ -1,3 +1,8 @@
+"""
+Módulo de fine-tuning de modelos com monitoramento de energia.
+"""
+
+import warnings
 import json
 import time
 from datetime import datetime
@@ -8,7 +13,7 @@ import huggingface_hub
 import torch
 import wandb
 from datasets import load_dataset, load_from_disk
-from peft import LoraConfig, TaskType, get_peft_model
+from peft import LoraConfig, TaskType, get_peft_model, prepare_model_for_kbit_training
 from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
@@ -16,14 +21,23 @@ from transformers import (
 from transformers.data.data_collator import DataCollatorForLanguageModeling
 from transformers.trainer import Trainer
 from transformers.training_args import TrainingArguments
+from transformers.utils.quantization_config import BitsAndBytesConfig
 
 from config.config import settings
 from src.monitor import RobustGPUMonitor
 from src.energy_callback import EnergyTrackingCallback
-from transformers.utils.quantization_config import BitsAndBytesConfig
-from peft import prepare_model_for_kbit_training
 from src.logging_config import get_finetuning_logger, get_model_logger, get_training_logger
 from src.utils.common import safe_cast
+
+# Configurar filtros específicos para warnings conhecidos
+warnings.filterwarnings("ignore", category=UserWarning, 
+                       message=r".*pin_memory.*argument is set as true but no accelerator is found.*")
+warnings.filterwarnings("ignore", category=UserWarning,
+                       message=r".*torch\.utils\.checkpoint.*use_reentrant parameter should be passed explicitly.*")
+warnings.filterwarnings("ignore", category=UserWarning,
+                       message=r".*could not find a program.*")
+warnings.filterwarnings("ignore", category=UserWarning,
+                       message=r".*does not have many workers.*")
 
 # Configurar logging estruturado
 logger = get_finetuning_logger()
@@ -238,7 +252,14 @@ class LlamaFineTuner:
         """Carrega arquivo JSONL"""
         logger.info("Carregando arquivo JSONL", file_size=dataset_path_obj.stat().st_size)
         dataset = load_dataset('json', data_files=str(dataset_path_obj), split='train')
-        logger.info("Dataset JSONL carregado", samples=len(dataset))
+        
+        # Verificar se o dataset tem __len__ usando try/except para evitar problemas de tipo
+        try:
+            num_samples = len(dataset)  # type: ignore
+            logger.info("Dataset JSONL carregado", samples=num_samples)
+        except (TypeError, AttributeError):
+            logger.info("Dataset JSONL carregado", dataset_type=type(dataset).__name__)
+            
         return dataset
 
     def _load_dataset_directory(self, dataset_path_obj: Path):
@@ -370,11 +391,12 @@ class LlamaFineTuner:
             )
 
         setup_training_args = self.setup_training_arguments()
+        sync_interval_s = 30.0
 
         # Criar callback de monitoramento energético
         energy_callback = EnergyTrackingCallback(
             gpu_monitor=self.gpu_monitor,
-            sync_interval_s=10.0  # Sincronização a cada 10 segundos
+            sync_interval_s=sync_interval_s
         )
 
         # Configurar trainer com callback energético
@@ -388,8 +410,8 @@ class LlamaFineTuner:
 
         training_logger.info("Iniciando treinamento com monitoramento energético", 
                            dataset_size=len(tokenized_dataset),
-                           sync_interval_s=10.0)
-        
+                           sync_interval_s=sync_interval_s)
+
         try:
             # O monitoramento será gerenciado pelo callback
             trainer.train()

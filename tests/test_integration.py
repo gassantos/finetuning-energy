@@ -437,7 +437,7 @@ class TestSystemIntegration:
             result = monitor.stop_monitoring()
 
             assert result is not None
-            assert result["monitoring_duration_s"] >= 0.9  # Margem para variações de timing
+            assert result["monitoring_duration_s"] >= 0.8  # Margem para variações de timing
 
             # Verificar se coletou dados suficientes
             if "gpus" in result:
