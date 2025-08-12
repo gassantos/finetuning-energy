@@ -2,6 +2,10 @@ import tiktoken
 import pandas as pd
 import os
 from typing import Dict, List, Optional, Tuple
+from src.logging_config import get_logger
+
+# Configurar logging estruturado
+logger = get_logger(context="utils")
 
 
 class TokenAnalyzer:

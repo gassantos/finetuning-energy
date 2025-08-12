@@ -83,18 +83,6 @@ class TestProcessTextData:
             ]
         })
     
-    # def test_process_text_data_success(self, sample_config, sample_data):
-    #     """Testa processamento bem-sucedido de dados"""
-    #     with patch('src.text_preprocessing.pd.read_excel', return_value=sample_data):
-    #         with patch('src.text_preprocessing.Path.exists', return_value=True):
-    #             with patch('src.text_preprocessing.Path.mkdir'):
-    #                 result = process_text_data("fake_file.xlsx", sample_config)
-                    
-    #                 # assert result['success'] is True
-    #                 assert 'statistics' in result
-    #                 assert 'saved_files' in result
-    #                 assert result['statistics']['total_samples'] > 0
-    
     def test_process_text_data_invalid_columns(self, sample_config):
         """Testa comportamento com colunas inválidas"""
         invalid_data = pd.DataFrame({

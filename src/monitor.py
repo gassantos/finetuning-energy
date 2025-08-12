@@ -7,6 +7,10 @@ import nvitop
 import pynvml
 
 from config.config import settings
+from src.logging_config import get_monitor_logger
+
+# Configurar logging estruturado para monitoramento
+monitor_logger = get_monitor_logger()
 
 
 def safe_cast(value, cast_func, default):

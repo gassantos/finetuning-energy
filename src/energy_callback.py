@@ -4,10 +4,15 @@ Implementa melhores práticas para medição de consumo energético em LLMs.
 """
 
 import time
-from typing import Dict, Optional
-from transformers import TrainerCallback, TrainerState, TrainerControl, TrainingArguments
+from typing import Optional
+from transformers.trainer_callback import TrainerCallback, TrainerState, TrainerControl
+from transformers.training_args import TrainingArguments
 import wandb
 from dataclasses import dataclass
+from src.logging_config import get_energy_logger
+
+# Configurar logging estruturado para energia
+energy_logger = get_energy_logger()
 
 @dataclass
 class EnergyMetrics:
@@ -51,7 +56,8 @@ class EnergyTrackingCallback(TrainerCallback):
         
     def on_train_begin(self, args: TrainingArguments, state: TrainerState, control: TrainerControl, **kwargs):
         """Inicia monitoramento quando o treinamento começa"""
-        print("🔋 Iniciando monitoramento energético sincronizado...")
+        energy_logger.info("Iniciando monitoramento energético sincronizado", 
+                          sync_interval_s=self.sync_interval_s)
         
         self.training_start_time = time.time()
         self.last_sync_time = self.training_start_time
@@ -59,10 +65,10 @@ class EnergyTrackingCallback(TrainerCallback):
         
         # Iniciar monitoramento contínuo
         if not self.gpu_monitor.start_monitoring():
-            print("⚠️ Falha ao iniciar monitoramento GPU")
+            energy_logger.error("Falha ao iniciar monitoramento GPU")
             return
             
-        print(f"✅ Monitoramento iniciado - Sincronização a cada {self.sync_interval_s}s e por step")
+        energy_logger.info("Monitoramento iniciado", sync_interval_s=self.sync_interval_s)
     
     def on_step_end(self, args: TrainingArguments, state: TrainerState, control: TrainerControl, **kwargs):
         """Processa métricas energéticas a cada step e intervalo de tempo"""

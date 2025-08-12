@@ -1,5 +1,4 @@
 import json
-import logging
 import time
 from datetime import datetime
 from pathlib import Path
@@ -23,10 +22,12 @@ from src.monitor import RobustGPUMonitor
 from src.energy_callback import EnergyTrackingCallback
 from transformers.utils.quantization_config import BitsAndBytesConfig
 from peft import prepare_model_for_kbit_training
+from src.logging_config import get_finetuning_logger, get_model_logger, get_training_logger
 
-# Configurar logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# Configurar logging estruturado
+logger = get_finetuning_logger()
+model_logger = get_model_logger()
+training_logger = get_training_logger()
 
 
 def safe_cast(value, cast_func, default):
@@ -74,7 +75,10 @@ class LlamaFineTuner:
         # Criar diretório para resultados se não existir
         self.result_dir.mkdir(parents=True, exist_ok=True)
 
-        logger.info(f"Inicializando LlamaFineTuner com modelo: {self.model_id}")
+        logger.info("Inicializando LlamaFineTuner", 
+                   model_id=self.model_id,
+                   output_dir=str(self.output_dir),
+                   result_dir=str(self.result_dir))
 
     def setup_authentication(self):
         """Configura autenticação para Wandb e Hugging Face"""
@@ -83,12 +87,17 @@ class LlamaFineTuner:
             huggingface_hub.login(token=self.hf_token)
             logger.info("Autenticação configurada com sucesso")
         except Exception as e:
-            logger.error(f"Erro na autenticação: {e}")
+            logger.error("Erro na autenticação", error=str(e))
             raise
 
     def initialize_wandb(self):
         """Inicializa o projeto no Wandb"""
         capabilities = self.gpu_monitor.detect_monitoring_capabilities()
+        
+        logger.info("Inicializando Wandb", 
+                   entity=str(settings.WANDB_ENTITY),
+                   project=str(settings.WANDB_PROJECT),
+                   run_name=str(settings.WANDB_RUN_NAME))
 
         wandb.init(
             entity=str(settings.WANDB_ENTITY),
@@ -120,6 +129,8 @@ class LlamaFineTuner:
                 wandb.run.settings.mode = "online"
             else:
                 wandb.run.settings.mode = "offline"
+        
+        logger.info("Wandb inicializado", mode=wandb_mode)
 
     def setup_quantization_config(self):
         """Configura quantização 4-bit com BitsAndBytes se disponível"""
@@ -133,11 +144,12 @@ class LlamaFineTuner:
 
     def load_model_and_tokenizer(self):
         """Carrega o modelo e tokenizer com quantização se disponível"""
-        logger.info(f"Carregando modelo: {self.model_id}")
+        model_logger.info("Carregando modelo e tokenizer", model_id=self.model_id)
         bnb_config = self.setup_quantization_config()
 
         try:
             # Carregar tokenizer
+            model_logger.info("Carregando tokenizer")
             self.tokenizer = AutoTokenizer.from_pretrained(
                 self.model_id, trust_remote_code=True, use_fast=True
             )
@@ -146,8 +158,10 @@ class LlamaFineTuner:
             if self.tokenizer.pad_token is None:
                 self.tokenizer.pad_token = self.tokenizer.eos_token
                 self.tokenizer.pad_token_id = self.tokenizer.eos_token_id
+                model_logger.info("pad_token configurado como eos_token")
 
             # Carregar modelo
+            model_logger.info("Carregando modelo com quantização 4-bit")
             self.model = AutoModelForCausalLM.from_pretrained(
                 self.model_id,
                 quantization_config=bnb_config,
@@ -158,10 +172,12 @@ class LlamaFineTuner:
             )
 
             self.model = prepare_model_for_kbit_training(self.model)
-            logger.info("Modelo e tokenizer carregados com sucesso")
+            model_logger.info("Modelo e tokenizer carregados com sucesso", 
+                             vocab_size=len(self.tokenizer),
+                             model_parameters=sum(p.numel() for p in self.model.parameters()))
 
         except Exception as e:
-            logger.error(f"Erro ao carregar modelo: {e}")
+            model_logger.error("Erro ao carregar modelo", error=str(e))
             raise
 
     def apply_lora(self):
@@ -186,80 +202,103 @@ class LlamaFineTuner:
             dataset_path: Caminho para dataset processado localmente (opcional)
         """
         if dataset_path and Path(dataset_path).exists():
-            logger.info(f"Carregando dataset processado de: {dataset_path}")
-            # Carregar dataset processado localmente
-            dataset_dict = load_from_disk(dataset_path)
+            logger.info("Carregando dataset processado", path=dataset_path)
             
-            # Usar split de treino, limitando amostras se necessário
-            if hasattr(dataset_dict, "keys") and "train" in dataset_dict:
-                dataset = dataset_dict["train"]
-            else:
-                dataset = dataset_dict
+            # Verificar se é um arquivo JSONL ou diretório
+            dataset_path_obj = Path(dataset_path)
+            
+            if dataset_path_obj.is_file() and dataset_path_obj.suffix == '.jsonl':
+                # Carregar arquivo JSONL diretamente
+                logger.info("Carregando arquivo JSONL", file_size=dataset_path_obj.stat().st_size)
+                dataset = load_dataset('json', data_files=str(dataset_path), split='train')
+                logger.info("Dataset JSONL carregado", samples=len(dataset))
                 
-            if hasattr(dataset, "select") and num_samples and num_samples < len(dataset):
-                dataset = dataset.select(range(num_samples))
-                logger.info(f"Limitando dataset a {num_samples} amostras para desenvolvimento")
+            elif dataset_path_obj.is_dir():
+                # Carregar diretório de datasets do HuggingFace
+                logger.info("Carregando diretório de dataset")
+                dataset_dict = load_from_disk(str(dataset_path))
+                
+                # Usar split de treino, limitando amostras se necessário
+                if hasattr(dataset_dict, "keys") and "train" in dataset_dict:
+                    dataset = dataset_dict["train"]
+                else:
+                    dataset = dataset_dict
+            else:
+                logger.error("Caminho de dataset inválido", path=dataset_path)
+                raise ValueError(f"Caminho de dataset inválido: {dataset_path}")
+                
         else:
-            logger.info(f"Carregando dataset HuggingFace: {settings.DATASET}")
-            # Fallback para dataset original do HuggingFace
+            logger.info("Carregando dataset HuggingFace", 
+                       dataset_name=str(settings.DATASET),
+                       samples=num_samples)
+            # Fallback para dataset billsum do HuggingFace
             dataset = load_dataset(str(settings.DATASET), split=f"train[:{num_samples}]")
 
-        # Log de exemplo do dataset
-        sample_data = []
-        for i, example in enumerate(dataset):
-            # if i >= 5:  # Apenas 5 exemplos para evitar logs excessivos
-            #     break
-            
-            # Detectar formato do dataset (processado vs original)
-            if "text" in example and "summary" in example:
-                # Dataset processado
-                text_preview = example["text"][:100] + "..."
-                summary_preview = example["summary"][:100] + "..."
-            else:
-                # Dataset original (billsum)
-                text_preview = example["text"][:100] + "..."
-                summary_preview = example["summary"][:100] + "..."
-                
-            sample_data.append([text_preview, summary_preview])
-
-        wandb.log(
-            {
-                "dataset_sample": wandb.Table(
-                    data=sample_data, columns=["text_preview", "summary_preview"]
-                ),
-                "dataset_size": getattr(dataset, "__len__", lambda: "unknown")(),
-                "dataset_source": "processed_local" if dataset_path else "huggingface"
-            }
-        )
+        # Log algumas amostras do dataset
+        self._log_dataset_samples(dataset)
 
         def preprocess(example):
             # Detectar formato do dataset e extrair campos apropriados
-            if "text" in example and "summary" in example:
-                # Dataset processado com campos padronizados
+            if "text" in example:
+                # Dataset processado com template já aplicado ou dataset original
                 text = example["text"]
-                summary = example["summary"]
-            else:
-                # Dataset original (billsum) - usar campos originais
-                text = example["text"]
-                summary = example["summary"]
                 
-            prompt = f"Summarize:\n{text}\nSummary:"
+                # Para datasets com template já aplicado (como nosso JSONL processado)
+                # o campo "text" já contém o template completo
+                if "[INST]" in text and "[/INST]" in text:
+                    # Usar texto como está (já tem template)
+                    input_text = text
+                else:
+                    # Aplicar template para datasets sem template
+                    input_text = f"Summarize:\n{text}\nSummary:"
+            else:
+                # Fallback para formato original
+                input_text = f"Summarize:\n{example.get('text', '')}\nSummary:"
+                
             if self.tokenizer is None:
                 raise RuntimeError("Tokenizer não foi inicializado")
 
             model_input = self.tokenizer(
-                prompt, truncation=True, padding="max_length", max_length=512
+                input_text, truncation=True, padding="max_length", max_length=512
             )
             model_input["labels"] = model_input["input_ids"].copy()
             return model_input
 
-        # Obter nomes das colunas originais
+        # Obter nomes das colunas originais de forma segura
         original_columns = []
-        if hasattr(dataset, "column_names") and dataset.column_names:
-            original_columns = list(dataset.column_names)
+        try:
+            if hasattr(dataset, "column_names") and dataset.column_names:
+                original_columns = list(dataset.column_names)  # type: ignore
+        except Exception:
+            # Ignorar erros de acesso às colunas
+            pass
             
-        tokenized_dataset = dataset.map(preprocess, remove_columns=original_columns)
+        tokenized_dataset = dataset.map(preprocess, remove_columns=original_columns)  # type: ignore
         return tokenized_dataset
+
+    def _log_dataset_samples(self, dataset):
+        """Log algumas amostras do dataset para verificação"""
+        try:
+            sample_data = []
+            for i, example in enumerate(dataset):
+                if i >= 3:  # Apenas 3 exemplos para evitar logs excessivos
+                    break
+                
+                # Detectar formato do dataset (processado vs original)
+                if "text" in example:
+                    text_preview = str(example["text"])[:150] + "..."
+                    sample_data.append([f"Exemplo {i+1}", text_preview])
+                    
+            if sample_data:
+                wandb.log({
+                    "dataset_sample": wandb.Table(
+                        data=sample_data, columns=["exemplo", "conteúdo"]
+                    ),
+                    "dataset_source": "processed_local" if hasattr(self, 'dataset_path') else "huggingface"
+                })
+                logger.info("Dataset samples enviadas para Wandb", samples_count=len(sample_data))
+        except Exception as e:
+            logger.warning("Não foi possível fazer log das amostras", error=str(e))
 
     def setup_training_arguments(self):
         """Configura argumentos de treinamento"""
@@ -300,19 +339,21 @@ class LlamaFineTuner:
             callbacks=[energy_callback]  # Adicionar callback de energia
         )
 
-        print("🔋 Iniciando treinamento com monitoramento energético sincronizado...")
+        training_logger.info("Iniciando treinamento com monitoramento energético", 
+                           dataset_size=len(tokenized_dataset),
+                           sync_interval_s=10.0)
         
         try:
             # O monitoramento será gerenciado pelo callback
             trainer.train()
         except Exception as e:
-            print(f"❌ Erro durante o treinamento: {e}")
+            training_logger.error("Erro durante o treinamento", error=str(e))
             # Garantir que o monitoramento seja parado mesmo em caso de erro
             if self.gpu_monitor.monitoring:
                 self.gpu_monitor.stop_monitoring()
             raise
 
-        print("✅ Treinamento finalizado com sucesso!")
+        training_logger.info("Treinamento finalizado com sucesso")
 
         # Obter histórico de energia do callback
         energy_history = energy_callback.get_energy_history()
@@ -434,7 +475,7 @@ class LlamaFineTuner:
         self.apply_lora()
 
         print("📊 Preparando dataset...")
-        tokenized_dataset = self.load_and_prepare_dataset(num_samples=settings.DATASET_NUM_SAMPLES, 
+        tokenized_dataset = self.load_and_prepare_dataset(num_samples=safe_cast(settings.DATASET_NUM_SAMPLES, int, 1000), 
                                                           dataset_path=dataset_path)
 
         print("🎯 Iniciando treinamento...")

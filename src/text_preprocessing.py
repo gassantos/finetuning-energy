@@ -14,11 +14,10 @@ from typing import Dict, List, Optional, Union, Any
 from dataclasses import dataclass
 from abc import ABC, abstractmethod
 from sklearn.model_selection import train_test_split
-import logging
+from src.logging_config import get_preprocessing_logger
 
 # Configurar logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
+logger = get_preprocessing_logger()
 
 
 @dataclass
@@ -83,13 +82,13 @@ class ExcelLoader(DataLoader):
     """Carregador para arquivos Excel (.xlsx, .xls)"""
     
     def load(self, file_path: Union[str, Path], sheet_name: Union[str, int] = 0, **kwargs) -> pd.DataFrame:
-        logger.info(f"Carregando arquivo Excel: {file_path}")
+        logger.info("Carregando arquivo Excel", file_path=str(file_path), sheet_name=sheet_name)
         try:
             df = pd.read_excel(file_path, sheet_name=sheet_name, **kwargs)
-            logger.info(f"Excel carregado: {len(df)} linhas, {len(df.columns)} colunas")
+            logger.info("Excel carregado com sucesso", rows=len(df), columns=len(df.columns))
             return df
         except Exception as e:
-            logger.error(f"Erro ao carregar Excel: {e}")
+            logger.error("Erro ao carregar Excel", error=str(e), file_path=str(file_path))
             raise
 
 
@@ -320,7 +319,7 @@ class UniversalTextPreprocessor:
         if self.raw_data is None:
             raise ValueError("Nenhum dado carregado. Use load_data() primeiro.")
         
-        logger.info("Iniciando pré-processamento dos dados...")
+        logger.info("Iniciando pré-processamento dos dados")
         
         # Fazer cópia para não alterar dados originais
         df = self.raw_data.copy()
@@ -332,10 +331,10 @@ class UniversalTextPreprocessor:
         
         removed_null = initial_count - len(df)
         if removed_null > 0:
-            logger.info(f"Removidas {removed_null} linhas com valores nulos")
+            logger.info("Removidas linhas com valores nulos", removed_count=removed_null)
         
         # Aplicar limpeza de texto
-        logger.info("Aplicando limpeza de texto...")
+        logger.info("Aplicando limpeza de texto")
         df['text_clean'] = df[self.config.text_column].apply(
             lambda x: TextCleaner.clean_text(x, self.config)
         )
@@ -349,7 +348,7 @@ class UniversalTextPreprocessor:
         filtered_count = initial_count - len(df)
         
         if filtered_count > 0:
-            logger.info(f"Removidas {filtered_count} linhas por filtros de comprimento")
+            logger.info("Removidas linhas por filtros de comprimento", filtered_count=filtered_count)
         
         # Preparar dados finais
         processed_records = []
