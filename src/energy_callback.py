@@ -148,9 +148,13 @@ class EnergyTrackingCallback(TrainerCallback):
         for sample in samples:
             for gpu_data in sample["gpus"]:
                 if "error" not in gpu_data:
-                    total_power_samples.append(gpu_data.get("power_draw_w", 0))
+                    # Suportar ambos formatos
+                    power_value = gpu_data.get("power_w") or gpu_data.get("power_draw_w", 0)
+                    total_power_samples.append(power_value)
                     total_temp_samples.append(gpu_data.get("temperature_c", 0))
-                    total_util_samples.append(gpu_data.get("utilization_gpu_percent", 0))
+                    # Suportar ambos formatos de utilização
+                    util_value = gpu_data.get("utilization_percent") or gpu_data.get("utilization_gpu_percent", 0)
+                    total_util_samples.append(util_value)
                     total_memory_samples.append(gpu_data.get("memory_used_mb", 0))
                     gpu_names.add(gpu_data.get("name", "Unknown"))
         

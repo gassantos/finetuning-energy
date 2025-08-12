@@ -461,11 +461,6 @@ class LlamaFineTuner:
             dataset_path: Caminho para dataset processado localmente (opcional)
         """
         start_time = time.time()
-
-        # # Usar configuração se não especificado
-        # if num_samples is None:
-        #     num_samples = safe_cast(settings.DATASET_NUM_SAMPLES, int, 1000)
-
         print("🚀 Iniciando fine-tuning com monitoramento robusto...")
 
         self.setup_authentication()
