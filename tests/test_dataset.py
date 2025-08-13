@@ -6,7 +6,7 @@ Testes do módulo de pré-processamento refatorado usando pytest
 import pytest
 import pandas as pd
 from unittest.mock import patch
-from src.text_preprocessing import PreprocessingConfig, process_text_data
+from src.text_preprocessing import PreprocessingConfig, process_text_data_distributed
 
 
 class TestPreprocessingConfig:
@@ -47,8 +47,8 @@ class TestPreprocessingConfig:
         assert "[INST]" in config.instruction_template
 
 
-class TestProcessTextData:
-    """Testes para a função process_text_data"""
+class TestProcessTextDataDistributed:
+    """Testes para a função process_text_data_distributed"""
     
     @pytest.fixture
     def sample_config(self):
@@ -92,7 +92,7 @@ class TestProcessTextData:
         
         with patch('src.text_preprocessing.pd.read_excel', return_value=invalid_data):
             with patch('src.text_preprocessing.Path.exists', return_value=True):
-                result = process_text_data("fake_file.xlsx", sample_config)
+                result = process_text_data_distributed("fake_file.xlsx", sample_config)
                 
                 assert result['success'] is False
                 assert 'error' in result
@@ -103,7 +103,7 @@ class TestProcessTextData:
         
         with patch('src.text_preprocessing.pd.read_excel', return_value=empty_data):
             with patch('src.text_preprocessing.Path.exists', return_value=True):
-                result = process_text_data("fake_file.xlsx", sample_config)
+                result = process_text_data_distributed("fake_file.xlsx", sample_config)
                 
                 assert result['success'] is False
                 assert 'error' in result
@@ -122,7 +122,7 @@ class TestProcessTextData:
         with patch('src.text_preprocessing.pd.read_excel', return_value=sample_data):
             with patch('src.text_preprocessing.Path.exists', return_value=True):
                 with patch('src.text_preprocessing.Path.mkdir'):
-                    result = process_text_data("fake_file.xlsx", config)
+                    result = process_text_data_distributed("fake_file.xlsx", config)
                     
                     if result['success']:
                         # Deve ter filtrado pelo menos alguns registros
@@ -133,7 +133,7 @@ class TestProcessTextData:
         with patch('src.text_preprocessing.pd.read_excel', return_value=sample_data):
             with patch('src.text_preprocessing.Path.exists', return_value=True):
                 with patch('src.text_preprocessing.Path.mkdir'):
-                    result = process_text_data("fake_file.xlsx", sample_config)
+                    result = process_text_data_distributed("fake_file.xlsx", sample_config)
                     
                     if result['success']:
                         stats = result['statistics']
@@ -157,7 +157,7 @@ class TestProcessTextData:
         with patch('src.text_preprocessing.pd.read_excel', return_value=sample_data):
             with patch('src.text_preprocessing.Path.exists', return_value=True):
                 with patch('src.text_preprocessing.Path.mkdir'):
-                    result = process_text_data("fake_file.xlsx", config)
+                    result = process_text_data_distributed("fake_file.xlsx", config)
                     
                     if result['success']:
                         # Verificar se os arquivos gerados têm a extensão correta
@@ -204,7 +204,7 @@ class TestIntegration:
         with patch('src.text_preprocessing.pd.read_excel', return_value=test_data):
             with patch('src.text_preprocessing.Path.exists', return_value=True):
                 with patch('src.text_preprocessing.Path.mkdir'):
-                    result = process_text_data("test_dataset.xlsx", config)
+                    result = process_text_data_distributed("test_dataset.xlsx", config)
                 
                 assert result['success'] is True
                 assert result['statistics']['total_samples'] == 5

@@ -8,8 +8,8 @@ from src.finetuning import LlamaFineTuner
 from config.config import settings
 from src.logging_config import setup_project_logging, get_pipeline_logger
 from src.text_preprocessing import (
-    PreprocessingConfig,
-    process_text_data
+    # DistributedPreprocessingConfig,
+    process_text_data_distributed
 )
 
 # Configurar filtros de warnings antes dos imports das bibliotecas pesadas
@@ -26,14 +26,6 @@ warnings.filterwarnings("ignore", category=UserWarning,
 setup_project_logging()
 logger = get_pipeline_logger()
 
-# Exemplo de uso do novo sistema
-config = PreprocessingConfig(
-    text_column="Texto",
-    summary_column="Resumo", 
-    id_column="Processo",
-    output_format="jsonl",
-    instruction_template="[INST] Sumarize o seguinte texto: {text} [/INST] {summary}"
-)
 
 def main():
     """Função principal para executar o pré-processamento e fine-tuning com monitoramento energético"""
@@ -42,9 +34,7 @@ def main():
     try:
         # Etapa 1: Pré-processamento do dataset
         logger.info("Etapa 1: Pré-processamento do dataset", step=1, stage="preprocessing")
-        
-        result = process_text_data("data/dataset.xlsx", config)
-        print(f"Resultado: {result['message']}")
+        result = process_text_data_distributed("data/dataset.xlsx")
         logger.info("Resultado do pré-processamento", message=result['message'])
         
         if not result['success']:
@@ -52,9 +42,7 @@ def main():
             logger.error("Falha no pré-processamento", error=error_msg)
             raise RuntimeError(f"Pré-processamento falhou: {error_msg}")
             
-        print(f"Estatísticas: {result['statistics']}")
         logger.info("Estatísticas do dataset processado", statistics=result['statistics'])
-        print(f"Arquivos salvos: {result['saved_files']}")
         logger.info("Arquivos do dataset salvos", saved_files=result['saved_files'])
         
         # Obter o caminho do arquivo de treino dos resultados
